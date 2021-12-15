@@ -68,9 +68,9 @@ clean:
 	-rm core blocking_accept dbg_blocking_accept $(OBJS) $(addprefix dbg_,$(OBJS)) tags generated
 
 install: libulp.a
-	mkdir -p $(DESTDIR)$(PREFIX)/lib || echo -n ""
-	mkdir -p $(DESTDIR)$(PREFIX)/include || echo -n ""
-	cp libulp.a $(DESTDIR)$(PREFIX)/lib
-	cp ulp.h dlist.h obstack_pool.h refcounted.h cb.h $(DESTDIR)$(PREFIX)/include
+	mkdir -p $(DESTDIR)$(PREFIX)/lib
+	mkdir -p $(DESTDIR)$(PREFIX)/include
+	cp libulp.a $(DESTDIR)$(PREFIX)/lib/
+	cp ulp.h dlist.h obstack_pool.h refcounted.h cb.h $(DESTDIR)$(PREFIX)/include/
 
 .PHONY: all clean vim-gdb valgrind install
