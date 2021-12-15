@@ -1,3 +1,6 @@
+DESTDIR =
+PREFIX = /usr/local
+
 CC = gcc
 RE2C = /home/cyan/git/evhttp/local/bin/re2c
 AR = ar
@@ -63,4 +66,9 @@ tags: *.re *.h *.c Makefile
 clean:
 	-rm core blocking_accept dbg_blocking_accept $(OBJS) $(addprefix dbg_,$(OBJS)) tags
 
-.PHONY: all clean vim-gdb valgrind
+install: libulp.a
+	mkdir -p $(DESTDIR)$(PREFIX)
+	cp libulp.a $(DESTDIR)$(PREFIX)/lib
+	cp ulp.h dlist.h obstack_pool.h refcounted.h cb.h $(DESTDIR)$(PREFIX)/include
+
+.PHONY: all clean vim-gdb valgrind install
