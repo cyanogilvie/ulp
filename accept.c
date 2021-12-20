@@ -1,9 +1,9 @@
 #include "int.h"
 
-thrd_t	io_thread_id;
-int io_thread_wakeup_fd = -1;
-int	io_thread_epollfd = -1;
-
+thrd_t				io_thread_id;
+int					io_thread_wakeup_fd = -1;
+int					io_thread_epollfd = -1;
+static once_flag	autoinit = ONCE_FLAG_INIT;
 
 int init_msg_queue(struct msg_queue* q) //<<<
 {
@@ -392,7 +392,7 @@ int start_listen(const char* node, const char* service, parser* parser, struct m
 }
 
 //>>>
-int ulp_init() //<<
+void ulp_init_once() //<<<
 {
 	int		io_thread_ready = -1;
 
@@ -423,7 +423,12 @@ finally:
 		close(io_thread_ready);
 		io_thread_ready = -1;
 	}
-	return 0;
+}
+
+//>>>
+int ulp_init() //<<<
+{
+	call_once(&autoinit, ulp_init_once);
 }
 
 //>>>
