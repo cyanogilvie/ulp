@@ -8,15 +8,15 @@
 #include "ulp.h"
 
 struct listen_info;
-struct input;
-struct output;
+struct ulp_input;
+struct ulp_output;
 
 typedef void (io_ready_cb)(void* cdata, uint32_t events);
 
 struct listen_info {
 	int					listen_fd;
-	parser*				parser;
-	struct msg_queue*	q;
+	ulp_parser*			parser;
+	void*				cdata;			// Opaque pointer registered at start_listen, passed to parser
 };
 
 struct io_ready_data {
@@ -24,19 +24,17 @@ struct io_ready_data {
 	void*			cx;
 };
 
-struct con {
+struct ulp_con {
 	int						fd;
-	parser*					parser;
-	struct msg_queue*		q;
+	ulp_parser*				parser;
+	void*					cdata;
 	struct obstack*			ob;
-	struct input			in;
-	struct dlist			out;			// Linked list of struct output
+	struct ulp_input		in;
+	struct ulp_dlist		out;			// Linked list of struct output
 	int						epollfd;		// -1 if not registered with epoll
 	struct io_ready_data	io_ready_data;
-	struct dlist			close_hooks;
+	struct ulp_dlist		close_hooks;
 };
-
-extern struct msg_queue http_reqs;
 
 #include <x86intrin.h>
 #define cycles()	__rdtsc()

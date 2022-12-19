@@ -7,9 +7,9 @@ AR = ar
 RANLIB = ranlib
 VALGRIND = valgrind
 
-CFLAGS = -std=gnu17 -Wno-missing-braces -I.
-CFLAGS_DEBUG = -ggdb3 -O0 -DPURIFY
-CFLAGS_OPTIMIZE = -ggdb3 -O3 -march=native -mtune=native -flto
+CFLAGS = -std=gnu17 -Wno-missing-braces -I. -Werror
+CFLAGS_DEBUG = -ggdb3 -Og -DPURIFY
+CFLAGS_OPTIMIZE = -ggdb3 -Ofast -march=native -mtune=native -flto
 LDFLAGS =
 PGO =
 RE2COPTS = --case-ranges -W -Wno-nondeterministic-tags
@@ -40,7 +40,7 @@ libulp.a: $(OBJS)
 	$(RANLIB) $@
 
 blocking_accept: test.c libulp.a http.o
-	$(CC) -o $@ $(CFLAGS) $(CFLAGS_OPTIMIZE) test.c $(LDFLAGS) $(PGO) http.o -L. -lulp_dbg
+	$(CC) -o $@ $(CFLAGS) $(CFLAGS_OPTIMIZE) test.c $(LDFLAGS) $(PGO) http.o -L. -lulp
 
 $(addprefix dbg_,$(C_OBJS)): dbg_%.o: %.c Makefile
 	$(CC) -c $(CFLAGS) $(CFLAGS_DEBUG) $(PGO) -o $@ $<
@@ -56,7 +56,7 @@ dbg_blocking_accept: test.c libulp_dbg.a dbg_http.o
 	$(CC) -o $@ $(CFLAGS) $(CFLAGS_DEBUG) test.c $(LDFLAGS) $(PGO) dbg_http.o -L. -lulp_dbg
 
 vim-gdb: dbg_blocking_accept tags
-	vim -c "set number" -c "set mouse=a" -c "set foldlevel=100" -c "Termdebug -ex set\ print\ pretty\ on --args ./dbg_blocking_accept" -c "2windo set nonumber" -c "1windo set nonumber" accept.c
+	vim -c "set number" -c "set mouse=a" -c "set foldlevel=100" -c "Termdebug -ex set\ print\ pretty\ on --args ./dbg_blocking_accept" -c "2windo set nonumber" -c "1windo set nonumber" test.c
 
 valgrind: dbg_testserv
 	$(VALGRIND) $(VALGRINDARGS) ./$<
@@ -71,6 +71,6 @@ install: libulp.a
 	mkdir -p $(DESTDIR)$(PREFIX)/lib
 	mkdir -p $(DESTDIR)$(PREFIX)/include
 	cp libulp.a $(DESTDIR)$(PREFIX)/lib/
-	cp ulp.h dlist.h obstack_pool.h refcounted.h cb.h $(DESTDIR)$(PREFIX)/include/
+	cp ulp.h ulp_dlist.h ulp_obstack_pool.h ulp_refcounted.h ulp_cb.h $(DESTDIR)$(PREFIX)/include/
 
 .PHONY: all clean vim-gdb valgrind install

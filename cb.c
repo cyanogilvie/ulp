@@ -1,20 +1,20 @@
 #include "int.h"
 
-void register_hook_cb(struct dlist* cbs, struct hook_cb* cb) //<<<
+void ulp_register_hook_cb(struct ulp_dlist* cbs, struct ulp_hook_cb* cb) //<<<
 {
-	dlist_prepend(cbs, cb);
+	ulp_dlist_prepend(cbs, cb);
 }
 
 //>>>
-void deregister_hook_cb(struct dlist* cbs, struct hook_cb* cb) //<<<
+void ulp_deregister_hook_cb(struct ulp_dlist* cbs, struct ulp_hook_cb* cb) //<<<
 {
-	dlist_remove(cbs, cb);
+	ulp_dlist_remove(cbs, cb);
 }
 
 //>>>
-void call_hooks(struct dlist* cbs, void* arg) //<<<
+void ulp_call_hooks(struct ulp_dlist* cbs, void* arg) //<<<
 {
-	struct hook_cb*		cb = dlist_head(cbs);
+	struct ulp_hook_cb*		cb = ulp_dlist_head(cbs);
 
 	while (cb) {
 		cb->hook_cb(&cb->aux, arg);
@@ -23,13 +23,13 @@ void call_hooks(struct dlist* cbs, void* arg) //<<<
 }
 
 //>>>
-void deregister_hook_cbs(struct dlist* cbs) //<<<
+void ulp_deregister_hook_cbs(struct ulp_dlist* cbs) //<<<
 {
-	struct hook_cb*		cb = dlist_head(cbs);
+	struct ulp_hook_cb*		cb = ulp_dlist_head(cbs);
 
 	while (cb) {
 		if (cb->aux.data) {
-			rc_decref(&cb->aux);
+			ulp_rc_decref(&cb->aux);
 			cb->aux.data = NULL;
 		}
 		cb = cb->dl.next;

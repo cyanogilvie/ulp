@@ -14,51 +14,53 @@
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <obstack.h>
-#include "dlist.h"
-#include "obstack_pool.h"
-#include "refcounted.h"
-#include "cb.h"
+#include "ulp_dlist.h"
+#include "ulp_obstack_pool.h"
+#include "ulp_refcounted.h"
+#include "ulp_cb.h"
 
-struct msg_queue;
-struct input;
-struct output;
+struct ulp_con;
+struct ulp_msg_queue;
+struct ulp_input;
+struct ulp_output;
 
-enum parser_status {
-	PARSER_STATUS_UNDEF=0,
-	PARSER_STATUS_WAITING,
-	PARSER_STATUS_OVERFLOW,
-	PARSER_STATUS_CLOSE,
-	PARSER_STATUS_ERROR
+enum ulp_parser_status {
+	ULP_PARSER_STATUS_UNDEF=0,
+	ULP_PARSER_STATUS_WAITING,
+	ULP_PARSER_STATUS_OVERFLOW,
+	ULP_PARSER_STATUS_CLOSE,
+	ULP_PARSER_STATUS_ERROR
 };
 
-typedef enum parser_status (parser)(struct input* in, struct msg_queue* q);
+typedef enum ulp_parser_status (ulp_parser)(struct ulp_con* con, struct ulp_input* in, void* cdata);
 
-struct msg_queue {
-	mtx_t			mutex;
-	cnd_t			msg_avail;
-	struct dlist	msgs;		// List of struct msg
+struct ulp_msg_queue {
+	mtx_t				mutex;
+	cnd_t				msg_avail;
+	struct ulp_dlist	msgs;		// List of struct msg
 };
 
-struct msg {
-	struct dlist_elem	dl;		// Must be first
-	void*				data;	// Message-type specific data
+struct ulp_msg {
+	struct ulp_dlist_elem	dl;		// Must be first
+	struct ulp_con*			con;
+	void*					data;	// Message-type specific data
 };
 
-typedef void (shift_tags)(struct input* c, size_t shift);
+typedef void (ulp_shift_tags)(struct ulp_input* c, size_t shift);
 
-struct mtagpool {
+struct ulp_mtagpool {
 	struct obstack*		ob;
 	void*				start;
 };
 
-struct mtag {
-	struct mtag*		prev;
+struct ulp_mtag {
+	struct ulp_mtag*	prev;
 	ssize_t				dist;
 };
 
-static inline void mtag(struct mtag** pmt, const unsigned char* b, const unsigned char* t, struct mtagpool* mtp) //<<<
+static inline void ulp_mtag(struct ulp_mtag** pmt, const unsigned char* b, const unsigned char* t, struct ulp_mtagpool* mtp) //<<<
 {
-	struct mtag*    mt = obstack_alloc(mtp->ob, sizeof(struct mtag));
+	struct ulp_mtag*    mt = obstack_alloc(mtp->ob, sizeof(struct ulp_mtag));
 	mt->prev = *pmt;
 	mt->dist = t - b;
 	*pmt = mt;
@@ -66,61 +68,62 @@ static inline void mtag(struct mtag** pmt, const unsigned char* b, const unsigne
 
 //>>>
 
-struct input {
-	unsigned char*	cur;
-	unsigned char*	mar;
-	unsigned char*	tok;
-	unsigned char*	lim;
-	ssize_t			remain;
-	int				cond;
-	int				state;
-	struct mtagpool	mtp;
-	void*			tags;		// Message-specific container for stags and mtags
-	void*			msg;		// Message-specific container for the message being parsed
-	shift_tags*		shift_tags;	// Optional cb to shift the message-specific tags
-	size_t			buf_size;
-	unsigned char*	buf;
+struct ulp_input {
+	unsigned char*		cur;
+	unsigned char*		mar;
+	unsigned char*		tok;
+	unsigned char*		lim;
+	ssize_t				remain;
+	int					cond;
+	int					state;
+	struct ulp_mtagpool	mtp;
+	void*				tags;		// Message-specific container for stags and mtags
+	void*				msg;		// Message-specific container for the message being parsed
+	ulp_shift_tags*		shift_tags;	// Optional cb to shift the message-specific tags
+	size_t				buf_size;
+	unsigned char*		buf;
 };
 
 // Output handlers <<<
-enum output_source {
-	IO_SOURCE_UNDEF=0,
-	IO_SOURCE_BUF,
-	IO_SOURCE_STREAM
+enum ulp_output_source {
+	ULP_IO_SOURCE_UNDEF=0,
+	ULP_IO_SOURCE_BUF,
+	ULP_IO_SOURCE_STREAM
 };
 
-typedef void (free_source)(void* source);		// source is a pointer to the source type struct, like source_buf
+typedef void (ulp_free_source)(void* source);	// source is a pointer to the source type struct, like source_buf
 
-struct source_buf {
-	free_source*	free;
-	void*			data;		// Opaque pointer for source-specific info
-	unsigned char*	buf;
-	unsigned char*	cur;
-	unsigned char*	lim;
+struct ulp_source_buf {
+	ulp_free_source*	free;
+	void*				data;		// Opaque pointer for source-specific info
+	unsigned char*		buf;
+	unsigned char*		cur;
+	unsigned char*		lim;
 };
 
-struct source_stream;
-typedef enum stream_status (stream_chunk)(struct source_stream* stream);
+struct ulp_source_stream;
+typedef enum ulp_stream_status (ulp_stream_chunk)(struct ulp_source_stream* stream);
 
-struct source_stream {
-	free_source*	free;
-	void*			data;		// Opaque pointer for source-specific info
-	stream_chunk*	next_chunk;
+struct ulp_source_stream {
+	ulp_free_source*	free;
+	void*				data;		// Opaque pointer for source-specific info
+	ulp_stream_chunk*	next_chunk;
 };
 
-struct output {
-	struct dlist_elem	dl;		// Must be first
-	enum output_source	source;
+struct ulp_output {
+	struct ulp_dlist_elem	dl;		// Must be first
+	enum ulp_output_source	source;
 	union {
-		struct source_buf		buf;
-		struct source_stream	stream;
+		struct ulp_source_buf		buf;
+		struct ulp_source_stream	stream;
 	};
 };
 // Output handlers >>>
 
 
-int init_msg_queue(struct msg_queue* q);
-int start_listen(const char* node, const char* service, parser* parser, struct msg_queue* q);
+int ulp_init_msg_queue(struct ulp_msg_queue* q);
+int ulp_start_listen(const char* node, const char* service, ulp_parser* parser, void* cdata);
 int ulp_init();
+void ulp_close_con(struct ulp_con* c);
 
 #endif

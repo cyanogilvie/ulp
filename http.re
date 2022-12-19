@@ -11,18 +11,18 @@ struct http_tags {
 	/*!mtags:re2c format = "\tstruct mtag*\t\t@@{tag};\n"; */
 };
 
-enum parser_status parse_http(struct input* in, struct msg_queue* q);
+enum ulp_parser_status parse_http(struct ulp_con* con, struct ulp_input* in, void* cdata);
 /*!header:re2c:off */
 
-void shift_http_tags(struct input* in, size_t shift) //
+void shift_http_tags(struct ulp_input* in, size_t shift) //
 {
 	/*!stags:re2c format = "\tif (in->@@) in->@@ -= shift;\n"; */
 }
 
 //>>>
-void init_http_parser(struct input* in) //<<<
+void init_http_parser(struct ulp_input* in) //<<<
 {
-	struct obstack*		msg_ob = obstack_pool_get(OBSTACK_POOL_SMALL);
+	struct obstack*		msg_ob = ulp_obstack_pool_get(ULP_OBSTACK_POOL_SMALL);
 	struct http_msg*	msg = in->msg = obstack_alloc(msg_ob, sizeof(struct http_msg));
 
 	*msg = (struct http_msg){0};
@@ -33,22 +33,22 @@ void init_http_parser(struct input* in) //<<<
 }
 
 //>>>
-void free_http_parser(struct input* in) //<<<
+void free_http_parser(struct ulp_input* in) //<<<
 {
 	if (in->msg) {
 		struct http_msg*	msg = in->msg;
 		in->tags = NULL;
-		obstack_pool_release(msg->ob);
+		ulp_obstack_pool_release(msg->ob);
 		in->msg = NULL;
 	}
 }
 
 //>>>
-enum parser_status parse_http(struct input* in, struct msg_queue* q) //<<<
+enum ulp_parser_status parse_http(struct ulp_con* c, struct ulp_input* in, void* cdata) //<<<
 {
 	if (in->msg == NULL) init_http_parser(in);
 
-	return PARSER_STATUS_WAITING;
+	return ULP_PARSER_STATUS_WAITING;
 }
 
 //>>>

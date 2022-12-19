@@ -5,9 +5,9 @@ int					io_thread_wakeup_fd = -1;
 int					io_thread_epollfd = -1;
 static once_flag	autoinit = ONCE_FLAG_INIT;
 
-int init_msg_queue(struct msg_queue* q) //<<<
+int init_msg_queue(struct ulp_msg_queue* q) //<<<
 {
-	dlist_init(&q->msgs);
+	ulp_dlist_init(&q->msgs);
 	if (mtx_init(&q->mutex, mtx_plain) != thrd_success) {
 		fprintf(stderr, "Could not initialize msg_queue mutex\n");
 		return 1;
@@ -19,7 +19,7 @@ int init_msg_queue(struct msg_queue* q) //<<<
 }
 
 //>>>
-void deinit_msg_queue(struct msg_queue* q) //<<<
+void deinit_msg_queue(struct ulp_msg_queue* q) //<<<
 {
 	cnd_destroy(&q->msg_avail);
 	mtx_destroy(&q->mutex);
@@ -70,7 +70,7 @@ finally:
 }
 
 //>>>
-void io_thread_register_con(struct con* c) //<<<
+void io_thread_register_con(struct ulp_con* c) //<<<
 {
 	struct epoll_event	ev;
 	ev.events = EPOLLIN | EPOLLOUT | EPOLLET;
@@ -81,7 +81,7 @@ void io_thread_register_con(struct con* c) //<<<
 }
 
 //>>>
-void close_con(struct con* c) //<<<
+void ulp_close_con(struct ulp_con* c) //<<<
 {
 	if (c->epollfd != -1) {
 		epoll_ctl(c->epollfd, EPOLL_CTL_DEL, c->fd, NULL);
@@ -93,23 +93,23 @@ void close_con(struct con* c) //<<<
 
 	c->fd = -1;
 
-	call_hooks(&c->close_hooks, c);
+	ulp_call_hooks(&c->close_hooks, c);
 }
 
 //>>>
-int read_con(struct con* c) //<<<
+int read_con(struct ulp_con* c) //<<<
 {
 	int		closed = 0;
 
 	for (;;) {
-		struct input *const	in = &c->in;
-		size_t				shift = in->tok - in->buf;
-		size_t				free = in->buf_size - (in->lim - in->tok);
+		struct ulp_input *const	in = &c->in;
+		size_t					shift = in->tok - in->buf;
+		size_t					free = in->buf_size - (in->lim - in->tok);
 
 		if (free < 1) {
 			/* Input too long for receive buffer */
 			fprintf(stderr, "Input too long for receive buffer\n");
-			close_con(c);
+			ulp_close_con(c);
 			closed = 1;
 			goto finally;
 		}
@@ -144,13 +144,13 @@ int read_con(struct con* c) //<<<
 					goto finally;
 				default:
 					perror("Error reading from con fd");
-					close_con(c);
+					ulp_close_con(c);
 					closed = 1;
 					goto finally;
 			}
 		} else if (got == 0) {
 			printf("Connection socket closed\n");
-			close_con(c);
+			ulp_close_con(c);
 			closed = 1;
 			goto finally;
 		} else if (in->remain > 0) {
@@ -162,21 +162,21 @@ int read_con(struct con* c) //<<<
 		in->lim[0] = 0;	// Append sentinel
 
 parse:
-		enum parser_status	status = c->parser(in, c->q);
+		enum ulp_parser_status	status = c->parser(c, &c->in, c->cdata);
 
 		switch (status) {
-			case PARSER_STATUS_WAITING:
+			case ULP_PARSER_STATUS_WAITING:
 				break;
 
-			case PARSER_STATUS_OVERFLOW:
-			case PARSER_STATUS_ERROR:
+			case ULP_PARSER_STATUS_OVERFLOW:
+			case ULP_PARSER_STATUS_ERROR:
 				fprintf(stderr, "Parse error\n");
-				close_con(c);
+				ulp_close_con(c);
 				closed = 1;
 				goto finally;
 
-			case PARSER_STATUS_CLOSE:
-				close_con(c);
+			case ULP_PARSER_STATUS_CLOSE:
+				ulp_close_con(c);
 				closed = 1;
 				goto finally;
 
@@ -190,14 +190,14 @@ finally:
 }
 
 //>>>
-int write_con(struct con* c) //<<<
+int write_con(struct ulp_con* c) //<<<
 {
-	struct output*	job = NULL;
-	int				closed = 0;
+	struct ulp_output*	job = NULL;
+	int					closed = 0;
 
-	while ((job = dlist_head(&c->out))) {
+	while ((job = ulp_dlist_head(&c->out))) {
 		switch (job->source) {
-			case IO_SOURCE_BUF:
+			case ULP_IO_SOURCE_BUF:
 				{
 					const size_t	remain = job->buf.lim - job->buf.cur;
 					const ssize_t	wrote = send(c->fd, job->buf.cur, remain, MSG_DONTWAIT | (job->dl.next ? MSG_MORE : 0));
@@ -214,7 +214,7 @@ int write_con(struct con* c) //<<<
 
 							default:
 								perror("Error writing to con fd");
-								close_con(c);
+								ulp_close_con(c);
 								closed = 1;
 								goto finally;
 						}
@@ -222,19 +222,19 @@ int write_con(struct con* c) //<<<
 
 					job->buf.cur += wrote;
 					if (job->buf.lim <= job->buf.cur) {
-						job = dlist_pop_head(&c->out);
+						job = ulp_dlist_pop_head(&c->out);
 						continue;
 					}
 				}
 				break;
 
-			case IO_SOURCE_STREAM:
+			case ULP_IO_SOURCE_STREAM:
 				// TODO
 				break;
 
 			default:
 				fprintf(stderr, "Invalid source type: %d\n", job->source);
-				job = dlist_pop_head(&c->out);
+				job = ulp_dlist_pop_head(&c->out);
 		}
 	}
 
@@ -245,7 +245,7 @@ finally:
 //>>>
 void io_ready(void* con_, uint32_t events) //<<<
 {
-	struct con*	c = con_;
+	struct ulp_con*	c = con_;
 
 	if (events & EPOLLIN)
 		if (read_con(c))
@@ -256,17 +256,17 @@ void io_ready(void* con_, uint32_t events) //<<<
 }
 
 //>>>
-void free_con(struct rc_thing* aux, void* data) //<<<
+void free_con(struct ulp_rc_thing* aux, void* data) //<<<
 {
-	struct con*	c = aux->data;
+	struct ulp_con*	c = aux->data;
 
 	if (c) {
 		if (c->ob) {
-			obstack_pool_release(c->ob);
+			ulp_obstack_pool_release(c->ob);
 			c->ob = NULL;
 		}
 
-		deregister_hook_cbs(&c->close_hooks);
+		ulp_deregister_hook_cbs(&c->close_hooks);
 
 		free(c);
 		c = NULL;
@@ -295,12 +295,12 @@ int accept_thread(void* li_) //<<<
 			}
 		}
 
-		struct con*	c = malloc(sizeof *c);
-		*c = (struct con){
-			.fd		= con_fd,
-			.parser	= li->parser,
-			.q		= li->q,
-			.ob		= obstack_pool_get(OBSTACK_POOL_MEDIUM)
+		struct ulp_con*	c = malloc(sizeof *c);
+		*c = (struct ulp_con){
+			.fd			= con_fd,
+			.parser		= li->parser,
+			.cdata		= li->cdata,
+			.ob			= ulp_obstack_pool_get(ULP_OBSTACK_POOL_MEDIUM)
 		};
 		int rcvbuf;
 		unsigned int rcvbuflen = sizeof rcvbuf;
@@ -316,13 +316,13 @@ int accept_thread(void* li_) //<<<
 			.cx = c
 		};
 		c->epollfd = -1;
-		struct hook_cb*	close_hook = obstack_alloc(c->ob, sizeof *close_hook);
-		*close_hook = (struct hook_cb){
+		struct ulp_hook_cb*	close_hook = obstack_alloc(c->ob, sizeof *close_hook);
+		*close_hook = (struct ulp_hook_cb){
 			.hook_cb = free_con,
 			.aux.refcount = 1,
 			.aux.data = c
 		};
-		register_hook_cb(&c->close_hooks, close_hook);
+		ulp_register_hook_cb(&c->close_hooks, close_hook);
 
 		read_con(c);
 	}
@@ -332,7 +332,7 @@ finally:
 }
 
 //>>>
-int start_listen(const char* node, const char* service, parser* parser, struct msg_queue* q) //<<<
+int ulp_start_listen(const char* node, const char* service, ulp_parser* parser, void* cdata) //<<<
 {
 	int		rc;
 	struct addrinfo*	addrs;
@@ -378,7 +378,7 @@ int start_listen(const char* node, const char* service, parser* parser, struct m
 		*li = (struct listen_info){
 			.listen_fd	= s,
 			.parser		= parser,
-			.q			= q
+			.cdata		= cdata
 		};
 		if (thrd_success != thrd_create(&accept_thread_id, &accept_thread, li)) {
 			fprintf(stderr, "Could not create accept thread\n");
@@ -389,6 +389,7 @@ int start_listen(const char* node, const char* service, parser* parser, struct m
 			return 1;
 		}
 	}
+	return 0;
 }
 
 //>>>

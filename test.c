@@ -17,8 +17,11 @@
 
 int mainloop_wakeup_fd = -1;
 
-struct msg_queue http_reqs = {0};
+void http_req(struct ulp_con* c, struct http_msg* msg) //<<<
+{
+}
 
+//>>>
 void mainloop() //<<<
 {
 	const int			max_events = 100;
@@ -64,9 +67,9 @@ int main(int argc, char** argv) //<<<
 		goto finally;
 	}
 
-	init_msg_queue(&http_reqs);
+	//ulp_init_msg_queue(&http_reqs);
 
-	if (start_listen("0.0.0.0", "1234", &parse_http, &http_reqs)) {
+	if (ulp_start_listen("0.0.0.0", "1234", &parse_http, http_req)) {
 		fprintf(stderr, "Could not listen on 0.0.0.0:1234\n");
 		return EXIT_FAILURE;
 	}

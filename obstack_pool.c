@@ -15,7 +15,7 @@ struct obstack_pool {
 
 thread_local struct obstack_pool	t_obstack = {0};
 
-struct obstack* obstack_pool_get(enum obstack_pool_estimate est) //<<<
+struct obstack* ulp_obstack_pool_get(enum ulp_obstack_pool_estimate est) //<<<
 {
 	struct obstack_slot*	slot;
 
@@ -29,10 +29,10 @@ struct obstack* obstack_pool_get(enum obstack_pool_estimate est) //<<<
 
 	slot = (struct obstack_slot*)obstack_chunk_alloc(sizeof(struct obstack_slot));
 	switch (est) {
-		case OBSTACK_POOL_SMALL:
+		case ULP_OBSTACK_POOL_SMALL:
 			obstack_begin(&slot->ob, 12288-32);
 			break;
-		case OBSTACK_POOL_MEDIUM:
+		case ULP_OBSTACK_POOL_MEDIUM:
 			obstack_begin(&slot->ob, 1048576-32);
 			break;
 		default:
@@ -44,7 +44,7 @@ struct obstack* obstack_pool_get(enum obstack_pool_estimate est) //<<<
 }
 
 //>>>
-void obstack_pool_release(struct obstack* ob) //<<<
+void ulp_obstack_pool_release(struct obstack* ob) //<<<
 {
 	struct obstack_slot*	slot = (struct obstack_slot*)ob;
 	const uint64_t			now = cycles();
@@ -61,11 +61,11 @@ void obstack_pool_release(struct obstack* ob) //<<<
 	t_obstack.free = slot;
 	t_obstack.avail++;
 
-	obstack_pool_groom(now);
+	ulp_obstack_pool_groom(now);
 }
 
 //>>>
-void obstack_pool_groom(uint64_t now) //<<<
+void ulp_obstack_pool_groom(uint64_t now) //<<<
 {
 	const int		min_pool = 10;		// Keep at least this many slots in the pool
 	const uint64_t	horizon = now - 30*1000000000ULL;	// Free excess slots that are older than this

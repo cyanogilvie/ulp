@@ -1,42 +1,42 @@
 #include "int.h"
 
-typedef void*	(init_handler)(void);
-typedef void	(free_handler)(void* handler_data);
-typedef int		(process_msg)(void* handler_data, struct msg* msg);	// Return 0 if ok, else handler thread is terminated
+typedef void*	(ulp_init_handler)(void);
+typedef void	(ulp_free_handler)(void* handler_data);
+typedef int		(ulp_process_msg)(void* handler_data, struct ulp_msg* msg);	// Return 0 if ok, else handler thread is terminated
 
-struct msg_handler_pool {
-	mtx_t				mutex;	// Must hold this lock to access this struct (after init)
+struct ulp_msg_handler_pool {
+	mtx_t					mutex;	// Must hold this lock to access this struct (after init)
 
-	struct msg_queue*	q;		// Handlers process messages from this queue
+	struct ulp_msg_queue*	q;		// Handlers process messages from this queue
 
-	unsigned			avail;	// Count of idle handler threads
-	unsigned			busy;	// Count of handler threads currently busy
-	unsigned			min;	// Min number of handler threads to keep even if idle
-	unsigned			max;	// Max number of handler threads to start
+	unsigned				avail;	// Count of idle handler threads
+	unsigned				busy;	// Count of handler threads currently busy
+	unsigned				min;	// Min number of handler threads to keep even if idle
+	unsigned				max;	// Max number of handler threads to start
 
-	struct dlist		idle;	// Linked list of idle handlers (LRU stack) (struct msg_handler)
-	struct dlist		active;	// Linked list of handlers currently processing a message (struct msg_handler)
+	struct ulp_dlist		idle;	// Linked list of idle handlers (LRU stack) (struct msg_handler)
+	struct ulp_dlist		active;	// Linked list of handlers currently processing a message (struct msg_handler)
 
-	init_handler*		init_handler;
-	free_handler*		free_handler;
-	process_msg*		process_msg;
+	ulp_init_handler*		init_handler;
+	ulp_free_handler*		free_handler;
+	ulp_process_msg*		process_msg;
 };
 
-struct msg_handler {
-	struct dlist				dl;				// Must be first
-	struct msg_handler_pool*	pool;
-	struct msg_queue*			q;
-	int							last_returned;	// Seconds since posix epoch this handler last became idle
-	void*						handler_data;	// Opaque pointer containing the state of this handler
-	thrd_t						handler_thread;
-	process_msg*				process_msg;
+struct ulp_msg_handler {
+	struct ulp_dlist				dl;				// Must be first
+	struct ulp_msg_handler_pool*	pool;
+	struct ulp_msg_queue*			q;
+	int								last_returned;	// Seconds since posix epoch this handler last became idle
+	void*							handler_data;	// Opaque pointer containing the state of this handler
+	thrd_t							handler_thread;
+	ulp_process_msg*				process_msg;
 };
 
 
 int handler_thread(void* arg) //<<<
 {
-	struct msg_handler*	handler = arg;
-	int					running = 1;
+	struct ulp_msg_handler*	handler = arg;
+	int						running = 1;
 
 	handler->handler_data = handler->pool->init_handler();
 	if (handler->handler_data == NULL) {
@@ -56,7 +56,7 @@ int handler_thread(void* arg) //<<<
 			}
 		}
 
-		struct msg* m = dlist_pop_head(&handler->q->msgs);
+		struct ulp_msg* m = ulp_dlist_pop_head(&handler->q->msgs);
 
 unlock:
 		if (thrd_success != mtx_unlock(&handler->q->mutex)) {
@@ -77,12 +77,12 @@ finally:
 }
 
 //>>>
-int start_handler(struct msg_handler_pool* pool) // must have pool->mutex held <<<
+int start_handler(struct ulp_msg_handler_pool* pool) // must have pool->mutex held <<<
 {
-	int					rc = 0;
-	struct msg_handler*	new_handler = malloc(sizeof *new_handler);
+	int						rc = 0;
+	struct ulp_msg_handler*	new_handler = malloc(sizeof *new_handler);
 
-	*new_handler = (struct msg_handler){
+	*new_handler = (struct ulp_msg_handler){
 		.dl				= {0},
 		.pool			= pool,
 		.q				= pool->q,
@@ -109,11 +109,11 @@ finally:
 }
 
 //>>>
-int init_msg_handler_pool(struct msg_handler_pool* pool, struct msg_queue* q, unsigned min, unsigned max, init_handler* init_handler, free_handler* free_handler, process_msg* process_msg) //<<<
+int init_msg_handler_pool(struct ulp_msg_handler_pool* pool, struct ulp_msg_queue* q, unsigned min, unsigned max, ulp_init_handler* init_handler, ulp_free_handler* free_handler, ulp_process_msg* process_msg) //<<<
 {
 	int		rc = 0;
 
-	*pool = (struct msg_handler_pool){
+	*pool = (struct ulp_msg_handler_pool){
 		.q				= q,
 		.min			= min,
 		.max			= max,
