@@ -274,14 +274,14 @@ void free_con(struct ulp_rc_thing* aux, void* data) //<<<
 }
 
 //>>>
-int accept_thread(void* li_) //<<<
+int accept_thread(void* lh_) //<<<
 {
-	struct listen_info*			li = li_;
+	struct ulp_listen_handle*	lh = lh_;
 	struct sockaddr_storage		con_addr;
 	socklen_t					addrlen = sizeof con_addr;
 
 	for (;;) {
-		const int con_fd = accept4(li->listen_fd, (struct sockaddr*)&con_addr, &addrlen, SOCK_NONBLOCK | SOCK_CLOEXEC);
+		const int con_fd = accept4(lh->listen_fd, (struct sockaddr*)&con_addr, &addrlen, SOCK_NONBLOCK | SOCK_CLOEXEC);
 		if (con_fd == -1) {
 			switch (errno) {
 				case EINTR:
@@ -298,8 +298,8 @@ int accept_thread(void* li_) //<<<
 		struct ulp_con*	c = malloc(sizeof *c);
 		*c = (struct ulp_con){
 			.fd			= con_fd,
-			.parser		= li->parser,
-			.cdata		= li->cdata,
+			.parser		= lh->parser,
+			.cdata		= lh->cdata,
 			.ob			= ulp_obstack_pool_get(ULP_OBSTACK_POOL_MEDIUM)
 		};
 		int rcvbuf;
@@ -332,7 +332,7 @@ finally:
 }
 
 //>>>
-int ulp_start_listen(const char* node, const char* service, ulp_parser* parser, void* cdata) //<<<
+struct ulp_listen_handle* ulp_start_listen(const char* node, const char* service, ulp_parser* parser, void* cdata) //<<<
 {
 	int		rc;
 	struct addrinfo*	addrs;
@@ -342,6 +342,7 @@ int ulp_start_listen(const char* node, const char* service, ulp_parser* parser, 
 		.ai_socktype	= SOCK_STREAM,
 		.ai_protocol	= IPPROTO_TCP
 	};
+	struct ulp_listen_handle*	lh = NULL;
 
 	rc = getaddrinfo(node, service, &hints, &addrs);
 	if (rc != 0) {
@@ -374,20 +375,34 @@ int ulp_start_listen(const char* node, const char* service, ulp_parser* parser, 
 			exit(EXIT_FAILURE);
 		}
 
-		struct listen_info*	li = malloc(sizeof *li);
-		*li = (struct listen_info){
+		struct ulp_listen_handle*	last_lh = lh;
+		lh = malloc(sizeof *lh);
+		*lh = (struct ulp_listen_handle){
+			.next		= last_lh,
 			.listen_fd	= s,
 			.parser		= parser,
 			.cdata		= cdata
 		};
-		if (thrd_success != thrd_create(&accept_thread_id, &accept_thread, li)) {
+		if (thrd_success != thrd_create(&accept_thread_id, &accept_thread, lh)) {
 			fprintf(stderr, "Could not create accept thread\n");
-			return 1;
+			return NULL;
 		}
 		if (thrd_success != thrd_detach(accept_thread_id)) {
 			fprintf(stderr, "Could not detach accept thread\n");
-			return 1;
+			return NULL;
 		}
+	}
+	return lh;
+}
+
+//>>>
+int ulp_stop_listen(struct ulp_listen_handle* lh) //<<<
+{
+	while (lh) {
+		struct ulp_listen_handle*	this_lh = lh;
+		close(lh->listen_fd);
+		lh = lh->next;
+		free(this_lh);
 	}
 	return 0;
 }

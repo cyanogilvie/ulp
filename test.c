@@ -69,7 +69,7 @@ int main(int argc, char** argv) //<<<
 
 	//ulp_init_msg_queue(&http_reqs);
 
-	if (ulp_start_listen("0.0.0.0", "1234", &parse_http, http_req)) {
+	if (NULL == ulp_start_listen("0.0.0.0", "1234", &parse_http, http_req)) {
 		fprintf(stderr, "Could not listen on 0.0.0.0:1234\n");
 		return EXIT_FAILURE;
 	}

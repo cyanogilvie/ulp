@@ -7,16 +7,13 @@
 
 #include "ulp.h"
 
-struct listen_info;
-struct ulp_input;
-struct ulp_output;
-
 typedef void (io_ready_cb)(void* cdata, uint32_t events);
 
-struct listen_info {
-	int					listen_fd;
-	ulp_parser*			parser;
-	void*				cdata;			// Opaque pointer registered at start_listen, passed to parser
+struct ulp_listen_handle {
+	struct ulp_listen_handle*	next;
+	int							listen_fd;
+	ulp_parser*					parser;
+	void*						cdata;			// Opaque pointer registered at start_listen, passed to parser
 };
 
 struct io_ready_data {

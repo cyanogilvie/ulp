@@ -23,6 +23,7 @@ struct ulp_con;
 struct ulp_msg_queue;
 struct ulp_input;
 struct ulp_output;
+struct ulp_listen_handle;
 
 enum ulp_parser_status {
 	ULP_PARSER_STATUS_UNDEF=0,
@@ -121,9 +122,10 @@ struct ulp_output {
 // Output handlers >>>
 
 
-int ulp_init_msg_queue(struct ulp_msg_queue* q);
-int ulp_start_listen(const char* node, const char* service, ulp_parser* parser, void* cdata);
 int ulp_init();
+struct ulp_listen_handle* ulp_start_listen(const char* node, const char* service, ulp_parser* parser, void* cdata);
+int ulp_stop_listen(struct ulp_listen_handle* lh);
 void ulp_close_con(struct ulp_con* c);
+int ulp_init_msg_queue(struct ulp_msg_queue* q);
 
 #endif
