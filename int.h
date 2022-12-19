@@ -36,8 +36,10 @@ struct ulp_con {
 	struct ulp_dlist		close_hooks;
 };
 
+/*
 #include <x86intrin.h>
 #define cycles()	__rdtsc()
+*/
 
 // vim: ft=c foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4
 #endif

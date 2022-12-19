@@ -1,4 +1,5 @@
 #include "int.h"
+#include <time.h>
 
 struct obstack_slot {
 	struct obstack			ob;				// Must be first
@@ -14,6 +15,14 @@ struct obstack_pool {
 };
 
 thread_local struct obstack_pool	t_obstack = {0};
+
+uint64_t nanoseconds() // Time in nanoseconds, not necessarily monotonic or good for performance measurement (may drift)
+{
+	struct timespec	ts;
+	timespec_get(&ts, TIME_UTC);
+	return (uint64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+}
+
 
 struct obstack* ulp_obstack_pool_get(enum ulp_obstack_pool_estimate est) //<<<
 {
@@ -47,7 +56,7 @@ struct obstack* ulp_obstack_pool_get(enum ulp_obstack_pool_estimate est) //<<<
 void ulp_obstack_pool_release(struct obstack* ob) //<<<
 {
 	struct obstack_slot*	slot = (struct obstack_slot*)ob;
-	const uint64_t			now = cycles();
+	const uint64_t			now = nanoseconds();
 
 	obstack_free(&slot->ob, slot->first_object);
 	slot->first_object = obstack_alloc(&slot->ob, 1);
