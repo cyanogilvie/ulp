@@ -14,16 +14,36 @@
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <obstack.h>
-#include "ulp_dlist.h"
-#include "ulp_obstack_pool.h"
-#include "ulp_refcounted.h"
-#include "ulp_cb.h"
 
 struct ulp_con;
 struct ulp_msg_queue;
 struct ulp_input;
-struct ulp_output;
 struct ulp_listen_handle;
+
+enum ulp_err_code {
+	ULP_ERR_NONE=0,
+	ULP_OK,
+	ULP_ERR_BADARGS,
+	ULP_ERR_GETADDRINFO,
+	ULP_ERR_ERRNO,
+
+	ULP_ERR_END
+};
+
+typedef struct ulp_err {
+	const char*			msg;
+	enum ulp_err_code	code;
+	const char*			detail;
+	int					posix;
+} ulp_err;
+
+#define ULP_CHECK(label, var, call)		do { var = call; if (var.msg) goto label; } while(0);
+
+#include "ulp_dlist.h"
+#include "ulp_obstack_pool.h"
+#include "ulp_refcounted.h"
+#include "ulp_cb.h"
+#include "ulp_msg_handlers.h"
 
 enum ulp_parser_status {
 	ULP_PARSER_STATUS_UNDEF=0,
@@ -33,18 +53,12 @@ enum ulp_parser_status {
 	ULP_PARSER_STATUS_ERROR
 };
 
-typedef enum ulp_parser_status (ulp_parser)(struct ulp_con* con, struct ulp_input* in, void* cdata);
+typedef enum ulp_parser_status (ulp_parser)(struct ulp_con* con, struct ulp_input*const in, void* cdata);
 
 struct ulp_msg_queue {
 	mtx_t				mutex;
 	cnd_t				msg_avail;
 	struct ulp_dlist	msgs;		// List of struct msg
-};
-
-struct ulp_msg {
-	struct ulp_dlist_elem	dl;		// Must be first
-	struct ulp_con*			con;
-	void*					data;	// Message-type specific data
 };
 
 typedef void (ulp_shift_tags)(struct ulp_input* c, size_t shift);
@@ -74,58 +88,42 @@ struct ulp_input {
 	unsigned char*		mar;
 	unsigned char*		tok;
 	unsigned char*		lim;
-	ssize_t				remain;
-	int					cond;
-	int					state;
-	struct ulp_mtagpool	mtp;
-	void*				tags;		// Message-specific container for stags and mtags
-	void*				msg;		// Message-specific container for the message being parsed
-	ulp_shift_tags*		shift_tags;	// Optional cb to shift the message-specific tags
+	ulp_shift_tags*		shift_tags;	// Optional cb to shift the pending token tags when input is refilled
+	void*				parser_private;
+	ulp_rc_releaser*	parser_private_release;
 	size_t				buf_size;
 	unsigned char*		buf;
 };
 
-// Output handlers <<<
-enum ulp_output_source {
-	ULP_IO_SOURCE_UNDEF=0,
-	ULP_IO_SOURCE_BUF,
-	ULP_IO_SOURCE_STREAM
+ulp_err ulp_init();
+ulp_err ulp_shutdown();	// Only really for testing
+
+struct ulp_start_listen_args {
+	const char*					node;
+	const char*					service;
+	ulp_parser*					parser;
+	void*						cdata;
+	struct ulp_listen_handle**	lh;
 };
+ulp_err ulp_start_listen_(struct ulp_start_listen_args);
+#define ulp_start_listen(n, ...) ulp_start_listen_((struct ulp_start_listen_args){.node=(n), __VA_ARGS__})
 
-typedef void (ulp_free_source)(void* source);	// source is a pointer to the source type struct, like source_buf
+ulp_err ulp_stop_listen(struct ulp_listen_handle* lh);
+ulp_err ulp_close_con(struct ulp_con* c);
+ulp_err ulp_init_msg_queue(struct ulp_msg_queue* q);
+void ulp_deinit_msg_queue(struct ulp_msg_queue* q);
 
-struct ulp_source_buf {
-	ulp_free_source*	free;
-	void*				data;		// Opaque pointer for source-specific info
-	unsigned char*		buf;
-	unsigned char*		cur;
-	unsigned char*		lim;
+// ulp_send flags:
+#define ULP_MORE		1<<0		// Signal that there is more data about to be queued up, defer sending
+struct ulp_send_args {
+	struct ulp_con*		c;
+	const char*			data;
+	size_t				len;
+	int					flags;
+	ulp_rc_releaser*	release;
+	void*				release_cdata;
 };
-
-struct ulp_source_stream;
-typedef enum ulp_stream_status (ulp_stream_chunk)(struct ulp_source_stream* stream);
-
-struct ulp_source_stream {
-	ulp_free_source*	free;
-	void*				data;		// Opaque pointer for source-specific info
-	ulp_stream_chunk*	next_chunk;
-};
-
-struct ulp_output {
-	struct ulp_dlist_elem	dl;		// Must be first
-	enum ulp_output_source	source;
-	union {
-		struct ulp_source_buf		buf;
-		struct ulp_source_stream	stream;
-	};
-};
-// Output handlers >>>
-
-
-int ulp_init();
-struct ulp_listen_handle* ulp_start_listen(const char* node, const char* service, ulp_parser* parser, void* cdata);
-int ulp_stop_listen(struct ulp_listen_handle* lh);
-void ulp_close_con(struct ulp_con* c);
-int ulp_init_msg_queue(struct ulp_msg_queue* q);
+ulp_err ulp_send_(struct ulp_send_args args);
+#define ulp_send(c, ...) ulp_send_((struct ulp_send_args){.c=(c), __VA_ARGS__})
 
 #endif

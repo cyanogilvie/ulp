@@ -1,9 +1,5 @@
 #include "int.h"
 
-typedef void*	(ulp_init_handler)(void);
-typedef void	(ulp_free_handler)(void* handler_data);
-typedef int		(ulp_process_msg)(void* handler_data, struct ulp_msg* msg);	// Return 0 if ok, else handler thread is terminated
-
 struct ulp_msg_handler_pool {
 	mtx_t					mutex;	// Must hold this lock to access this struct (after init)
 
@@ -32,7 +28,6 @@ struct ulp_msg_handler {
 	ulp_process_msg*				process_msg;
 };
 
-
 int handler_thread(void* arg) //<<<
 {
 	struct ulp_msg_handler*	handler = arg;
@@ -45,6 +40,8 @@ int handler_thread(void* arg) //<<<
 	}
 
 	while (running) {
+		struct ulp_msg*	m = NULL;
+
 		if (thrd_success != mtx_lock(&handler->q->mutex)) {
 			goto finally;
 		}
@@ -52,11 +49,11 @@ int handler_thread(void* arg) //<<<
 			if (thrd_success != cnd_wait(&handler->q->msg_avail, &handler->q->mutex)) {
 				fprintf(stderr, "msg_handler cnd_wait failed\n");
 				running = 0;
-				goto unlock;
+				goto unlock;		// continue rather?
 			}
 		}
 
-		struct ulp_msg* m = ulp_dlist_pop_head(&handler->q->msgs);
+		m = ulp_dlist_pop_head(&handler->q->msgs);
 
 unlock:
 		if (thrd_success != mtx_unlock(&handler->q->mutex)) {
@@ -64,7 +61,7 @@ unlock:
 		}
 
 		// Process message
-		if (handler->process_msg(handler->handler_data, m)) {
+		if (m && handler->process_msg(handler->handler_data, m)) {
 			goto finally;
 		}
 
@@ -77,9 +74,9 @@ finally:
 }
 
 //>>>
-int start_handler(struct ulp_msg_handler_pool* pool) // must have pool->mutex held <<<
+ulp_err start_handler(struct ulp_msg_handler_pool* pool) // must have pool->mutex held <<<
 {
-	int						rc = 0;
+	ulp_err					err = {NULL, ULP_OK};
 	struct ulp_msg_handler*	new_handler = malloc(sizeof *new_handler);
 
 	*new_handler = (struct ulp_msg_handler){
@@ -89,66 +86,56 @@ int start_handler(struct ulp_msg_handler_pool* pool) // must have pool->mutex he
 		.process_msg	= pool->process_msg
 	};
 
-	if (thrd_success != thrd_create(&new_handler->handler_thread, &handler_thread, new_handler)) {
-		rc = 1;
-		goto finally;
-	}
-	if (thrd_success != thrd_detach(new_handler->handler_thread)) {
-		rc = 1;
-		goto finally;
-	}
+	if (thrd_success != thrd_create(&new_handler->handler_thread, &handler_thread, new_handler))
+		THROW_ERR(finally, err, "Could not create new handler thread");
+
+	if (thrd_success != thrd_detach(new_handler->handler_thread))
+		THROW_ERR(finally, err, "Could not detach handler thread");
 
 finally:
-	if (rc) {
+	if (err.msg) {
 		if (new_handler) {
 			free(new_handler);
 			new_handler = NULL;
 		}
 	}
-	return rc;
+	return err;
 }
 
 //>>>
-int init_msg_handler_pool(struct ulp_msg_handler_pool* pool, struct ulp_msg_queue* q, unsigned min, unsigned max, ulp_init_handler* init_handler, ulp_free_handler* free_handler, ulp_process_msg* process_msg) //<<<
+ulp_err ulp_init_msg_handler_pool_(struct ulp_init_msg_handler_pool_args args) //<<<
 {
-	int		rc = 0;
+	ulp_err		err = {NULL, ULP_OK};
+	int			locked = 0;
 
-	*pool = (struct ulp_msg_handler_pool){
-		.q				= q,
-		.min			= min,
-		.max			= max,
-		.init_handler	= init_handler,
-		.free_handler	= free_handler,
-		.process_msg	= process_msg
+	*args.pool = malloc(sizeof(struct ulp_msg_handler_pool));
+
+	**args.pool = (struct ulp_msg_handler_pool){
+		.q				= args.q,
+		.min			= args.min,
+		.max			= args.max,
+		.init_handler	= args.init_handler,
+		.free_handler	= args.free_handler,
+		.process_msg	= args.process_msg
 	};
+	struct ulp_msg_handler_pool* pool = *args.pool;
 
-	if (thrd_success != mtx_init(&pool->mutex, mtx_plain)) {
-		fprintf(stderr, "Could not initialize msg_handler_pool mutex\n");
-		rc = 1;
-		goto finally;
-	}
+	if (thrd_success != mtx_init(&pool->mutex, mtx_plain))
+		THROW_ERR(finally, err, "Could not initialize msg_handler_pool mutex");
 
-	if (thrd_success != mtx_lock(&pool->mutex)) {
-		fprintf(stderr, "Could not lock msg_handler_pool mutex\n");
-		rc = 1;
-		goto finally;
-	}
+	if (thrd_success != mtx_lock(&pool->mutex))
+		THROW_ERR(finally, err, "Could not lock msg_handler_pool mutex");
+	locked = 1;
 
-	while (pool->avail < pool->min) {
-		if (start_handler(pool)) {
-			rc = 1;
-			break;
-		}
-	}
-
-	if (thrd_success != mtx_unlock(&pool->mutex)) {
-		fprintf(stderr, "Could not unlock msg_handler_pool mutex\n");
-		rc = 1;
-		goto finally;
-	}
+	while (pool->avail < pool->min)
+		ULP_CHECK(finally, err, start_handler(pool))
 
 finally:
-	return rc;
+	if (locked)
+		if (thrd_success != mtx_unlock(&pool->mutex))
+			THROW_ERR(finally, err, "Could not unlock msg_handler_pool mutex");
+
+	return err;
 }
 
 //>>>

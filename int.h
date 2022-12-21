@@ -7,6 +7,26 @@
 
 #include "ulp.h"
 
+#define ERR(...)	(ulp_err){__VA_ARGS__}
+
+#define THROW_ERR(label, var, ...)				\
+	do {										\
+		(var) = (ulp_err){__VA_ARGS__};	\
+		goto label;								\
+	} while(0);
+
+#define THROW_POSIX(label, var, m, ...)			\
+	do {										\
+		(var) = (ulp_err){.code=ULP_ERR_ERRNO, .posix=errno, .msg=(m), __VA_ARGS__};	\
+		goto label;								\
+	} while(0);
+
+#if DEBUG
+#	define DBG(msg, ...) fprintf(stderr, (msg), __VA_ARGS__)
+#else
+#	define DBG(msg, ...)
+#endif
+
 typedef void (io_ready_cb)(void* cdata, uint32_t events);
 
 struct ulp_listen_handle {
@@ -14,6 +34,7 @@ struct ulp_listen_handle {
 	int							listen_fd;
 	ulp_parser*					parser;
 	void*						cdata;			// Opaque pointer registered at start_listen, passed to parser
+	thrd_t						accept_thread_id;
 };
 
 struct io_ready_data {
@@ -21,13 +42,35 @@ struct io_ready_data {
 	void*			cx;
 };
 
+// Output handlers <<<
+struct release_iov_segment {
+	ulp_rc_releaser*	release;
+	void*				cdata;
+};
+
+#define ULP_OUTPUT_IOV_STATIC_SIZE	64
+struct output {
+	struct ulp_dlist_elem		dl;		// Must be first
+	mtx_t						mutex;
+	struct iovec*				iov;
+	struct iovec				iov_static[ULP_OUTPUT_IOV_STATIC_SIZE];
+	int							iovcnt;
+	int							iovavail;
+	struct release_iov_segment*	iov_release;
+	struct release_iov_segment	iov_release_static[ULP_OUTPUT_IOV_STATIC_SIZE];
+	int							waiting;	// true if we're waiting for a writable callback
+};
+// Output handlers >>>
+
+
 struct ulp_con {
 	int						fd;
+	mtx_t					mutex;
 	ulp_parser*				parser;
 	void*					cdata;
 	struct obstack*			ob;
 	struct ulp_input		in;
-	struct ulp_dlist		out;			// Linked list of struct output
+	struct output			out;
 	int						epollfd;		// -1 if not registered with epoll
 	struct io_ready_data	io_ready_data;
 	struct ulp_dlist		close_hooks;

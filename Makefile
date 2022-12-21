@@ -7,27 +7,27 @@ AR = ar
 RANLIB = ranlib
 VALGRIND = valgrind
 
-CFLAGS = -std=gnu17 -Wno-missing-braces -I. -Werror
+CFLAGS = -std=gnu17 -Wall -Wextra -Werror -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-unused-parameter -I.
 CFLAGS_DEBUG = -ggdb3 -Og -DPURIFY
 CFLAGS_OPTIMIZE = -ggdb3 -Ofast -march=native -mtune=native -flto
 LDFLAGS =
 PGO =
-RE2COPTS = --case-ranges -W -Wno-nondeterministic-tags
+RE2COPTS = --case-ranges --storable-state --tags -W -Wno-nondeterministic-tags
 VALGRINDARGS_EXTRA = 
 VALGRINDARGS	= --tool=memcheck --num-callers=8 --leak-resolution=high \
 		  --leak-check=yes -v --suppressions=suppressions --keep-debuginfo=yes \
 		  --trace-children=yes $(VALGRINDARGS_EXTRA)
 
-RE2C_OBJS = http.o
+RE2C_OBJS = testproto.o
 C_OBJS = accept.o msg_handlers.o obstack_pool.o cb.o
 OBJS = $(C_OBJS)
 
 all: libulp.a libulp_dbg.a blocking_accept dbg_blocking_accept
 
-generated/http.c: http.re Makefile
+generated/testproto.c: testproto.re Makefile
 	mkdir -p generated
 	$(RE2C) $(RE2COPTS) --storable-state --conditions --type-header $(subst .c,.h,$@) $< -o $@
-	chmod a-w generated/http.c generated/http.h
+	chmod a-w generated/testproto.c generated/testproto.h
 
 $(C_OBJS): %.o: %.c Makefile
 	$(CC) -c $(CFLAGS) $(CFLAGS_OPTIMIZE) $(PGO) -o $@ $<
@@ -39,8 +39,8 @@ libulp.a: $(OBJS)
 	echo "create $@\n $(foreach mod,$(OBJS),addmod $(mod)\n) save\n end\n" | $(AR) -M
 	$(RANLIB) $@
 
-blocking_accept: test.c libulp.a http.o
-	$(CC) -o $@ $(CFLAGS) $(CFLAGS_OPTIMIZE) test.c $(LDFLAGS) $(PGO) http.o -L. -lulp
+blocking_accept: test.c libulp.a testproto.o
+	$(CC) -o $@ $(CFLAGS) $(CFLAGS_OPTIMIZE) test.c $(LDFLAGS) $(PGO) testproto.o -L. -lulp
 
 $(addprefix dbg_,$(C_OBJS)): dbg_%.o: %.c Makefile
 	$(CC) -c $(CFLAGS) $(CFLAGS_DEBUG) $(PGO) -o $@ $<
@@ -52,20 +52,20 @@ libulp_dbg.a: $(addprefix dbg_,$(OBJS))
 	echo "create $@\n $(foreach mod,$(addprefix dbg_,$(OBJS)),addmod $(mod)\n) save\n end\n" | $(AR) -M
 	$(RANLIB) $@
 
-dbg_blocking_accept: test.c libulp_dbg.a dbg_http.o
-	$(CC) -o $@ $(CFLAGS) $(CFLAGS_DEBUG) test.c $(LDFLAGS) $(PGO) dbg_http.o -L. -lulp_dbg
+dbg_blocking_accept: test.c libulp_dbg.a dbg_testproto.o
+	$(CC) -o $@ $(CFLAGS) $(CFLAGS_DEBUG) test.c $(LDFLAGS) $(PGO) dbg_testproto.o -L. -lulp_dbg
 
 vim-gdb: dbg_blocking_accept tags
 	vim -c "set number" -c "set mouse=a" -c "set foldlevel=100" -c "Termdebug -ex set\ print\ pretty\ on --args ./dbg_blocking_accept" -c "2windo set nonumber" -c "1windo set nonumber" test.c
 
-valgrind: dbg_testserv
+valgrind: dbg_blocking_accept
 	$(VALGRIND) $(VALGRINDARGS) ./$<
 
 tags: *.re *.h *.c Makefile
 	-ctags-exuberant --recurse=yes --langmap=c:+.re $(addprefix --exclude=,$(subst .o,.h,$(RE2C_OBJS))) $(addprefix --exclude=,$(subst .o,.c,$(RE2C_OBJS))) *.c *.h *.re
 
 clean:
-	-rm core blocking_accept dbg_blocking_accept $(OBJS) $(addprefix dbg_,$(OBJS)) tags generated
+	-rm -f core blocking_accept dbg_blocking_accept $(OBJS) $(addprefix dbg_,$(OBJS)) tags generated/*
 
 install: libulp.a
 	mkdir -p $(DESTDIR)$(PREFIX)/lib

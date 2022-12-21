@@ -13,12 +13,19 @@
 #include <obstack.h>
 #include "ulp.h"
 
-#include "generated/http.h"
+#include "generated/testproto.h"
 
 int mainloop_wakeup_fd = -1;
+int g_mainloop_running = 1;
 
-void http_req(struct ulp_con* c, struct http_msg* msg) //<<<
+void got_packet(struct ulp_con* c, const char* packet, size_t len) //<<<
 {
+	printf("Got packet: (%.*s)\n", (int)len, packet);
+	ulp_send(c, "Got: (", sizeof("Got: ("), .flags=ULP_MORE);
+	char* copy = malloc(len);
+	memcpy(copy, packet, len);	// Have to make a copy for ulp_send because we're about to shift the token out of the input buffer and it may not have been picked up yet
+	ulp_send(c, packet, len, .flags=ULP_MORE, .release=free, .release_cdata=copy);
+	ulp_send(c, ")\n", 2);
 }
 
 //>>>
@@ -40,9 +47,8 @@ void mainloop() //<<<
 	ev.data.ptr = NULL;
 	epoll_ctl(epollfd, EPOLL_CTL_ADD, mainloop_wakeup_fd, &ev);
 
-	for (;;) {
+	while (g_mainloop_running) {
 		const int nfds = epoll_wait(epollfd, events, max_events, -1);
-		fprintf(stderr, "mainloop epoll_wait returned\n");
 		if (-1 == nfds) {
 			if (errno == EINTR) continue;
 			perror("epoll_wait");
@@ -55,6 +61,9 @@ void mainloop() //<<<
 	}
 
 finally:
+	if (epollfd > 0)
+		close(epollfd);
+
 	return;
 }
 
@@ -62,21 +71,29 @@ finally:
 
 int main(int argc, char** argv) //<<<
 {
-	if (ulp_init()) {
-		fprintf(stderr, "up_init error\n");
-		goto finally;
-	}
+	ulp_err		err = {NULL, ULP_OK};
+	struct ulp_listen_handle*	lh = NULL;
 
-	//ulp_init_msg_queue(&http_reqs);
+	ULP_CHECK(finally, err, ulp_init());
 
-	if (NULL == ulp_start_listen("0.0.0.0", "1234", &parse_http, http_req)) {
-		fprintf(stderr, "Could not listen on 0.0.0.0:1234\n");
-		return EXIT_FAILURE;
-	}
+	ULP_CHECK(finally, err,
+			ulp_start_listen("0.0.0.0",
+				.service	= "1234",
+				.parser		= parse_testproto,
+				.cdata		= got_packet,
+				.lh			= &lh
+	));
 
 	mainloop();
 
+	ulp_stop_listen(lh);
+	ulp_shutdown();
+
 finally:
+	if (err.msg) {
+		fprintf(stderr, "Unhandled error: %s\n", err.msg);
+		return EXIT_FAILURE;
+	}
 	return EXIT_SUCCESS;
 }
 

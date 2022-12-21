@@ -94,8 +94,10 @@ void ulp_obstack_pool_groom(uint64_t now) //<<<
 				t_obstack.oldest = p->last_returned;
 				t_obstack.avail = i-1;
 				while (s) {
+					struct obstack_slot*	next = s->next;
 					obstack_free(&s->ob, NULL);
-					s = s->next;
+					obstack_chunk_free(s);
+					s = next;
 				}
 				break;
 			}
@@ -103,6 +105,20 @@ void ulp_obstack_pool_groom(uint64_t now) //<<<
 			s = s->next;
 		}
 	}
+}
+
+//>>>
+void ulp_obstack_pool_shutdown() //<<<
+{
+	struct obstack_slot*	s = t_obstack.free;
+
+	while (s) {
+		struct obstack_slot*	next = s->next;
+		obstack_free(&s->ob, NULL);
+		obstack_chunk_free(s);
+		s = next;
+	}
+	t_obstack.avail = 0;
 }
 
 //>>>
