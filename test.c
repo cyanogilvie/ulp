@@ -80,6 +80,7 @@ int main(int argc, char** argv) //<<<
 	ULP_CHECK(finally, err,
 			ulp_start_listen("0.0.0.0",
 				.service	= "1234",
+				.accept		= accept_handler,
 				.parser		= parse_testproto,
 				.cdata		= got_packet,
 				.lh			= &lh
@@ -87,6 +88,7 @@ int main(int argc, char** argv) //<<<
 
 	ULP_CHECK(finally, err,
 			ulp_start_listen("/tmp/ulp.sock",
+				.accept		= accept_handler,
 				.parser		= parse_testproto,
 				.cdata		= got_packet,
 				.lh			= &lh_uds
@@ -99,6 +101,10 @@ int main(int argc, char** argv) //<<<
 	ulp_shutdown();
 
 finally:
+	if (-1 == unlink("/tmp/ulp.sock"))
+		if (errno != ENOENT)
+			perror("unlink uds socket");
+
 	if (err.msg) {
 		fprintf(stderr, "Unhandled error: %s\n", err.msg);
 		return EXIT_FAILURE;

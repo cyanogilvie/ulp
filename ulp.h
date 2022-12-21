@@ -54,6 +54,7 @@ enum ulp_parser_status {
 };
 
 typedef enum ulp_parser_status (ulp_parser)(struct ulp_con* con, struct ulp_input*const in, void* cdata);
+typedef int (ulp_accept)(struct ulp_con* con, struct ulp_input*const in, void* cdata);
 
 struct ulp_msg_queue {
 	mtx_t				mutex;
@@ -101,6 +102,7 @@ ulp_err ulp_shutdown();	// Only really for testing
 struct ulp_start_listen_args {
 	const char*					node;
 	const char*					service;
+	ulp_accept*					accept;
 	ulp_parser*					parser;
 	void*						cdata;
 	struct ulp_listen_handle**	lh;
@@ -112,6 +114,7 @@ ulp_err ulp_stop_listen(struct ulp_listen_handle* lh);
 ulp_err ulp_close_con(struct ulp_con* c);
 ulp_err ulp_init_msg_queue(struct ulp_msg_queue* q);
 void ulp_deinit_msg_queue(struct ulp_msg_queue* q);
+ulp_err ulp_getpeername(struct ulp_con* c, struct sockaddr*restrict addr, socklen_t*restrict addrlen);
 
 // ulp_send flags:
 #define ULP_MORE		1<<0		// Signal that there is more data about to be queued up, defer sending

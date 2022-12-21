@@ -4,7 +4,7 @@
 extern int mainloop_wakeup_fd;
 extern int g_mainloop_running;
 
-/*!header:re2c:on */
+/*!header:re2c:on */ //<<<
 typedef void (testproto_got_packet)(struct ulp_con* c, const char* packet, size_t len);
 
 struct testproto_tags {
@@ -24,10 +24,11 @@ struct testproto_private {
 	*/
 };
 
+int accept_handler(struct ulp_con* c, struct ulp_input* in, void* cdata);
 enum ulp_parser_status parse_testproto(struct ulp_con* con, struct ulp_input* in, void* cdata);
-/*!header:re2c:off */
+/*!header:re2c:off */ //>>>
 
-void shift_testproto_tags(struct ulp_input* in, size_t shift) //
+void shift_testproto_tags(struct ulp_input* in, size_t shift) //<<<
 {
 	struct testproto_private*	p = in->parser_private;
 	/*!stags:re2c format = "\tif (p->tags.@@) p->tags.@@ -= shift;\n"; */
@@ -50,25 +51,51 @@ struct testproto_private* init_testproto_parser() //<<<
 void free_testproto_parser(void* parser_private) //<<<
 {
 	struct testproto_private*	p = parser_private;
+	printf("In free_testproto_parser\n");
 
 	if (p->ob)
 		ulp_obstack_pool_release(p->ob);
 }
 
 //>>>
-enum ulp_parser_status parse_testproto(struct ulp_con* c, struct ulp_input*const in, void* cdata) //<<<
+int accept_handler(struct ulp_con* c, struct ulp_input* in, void* cdata) //<<<
 {
-	testproto_got_packet*	cb = cdata;
-	unsigned char			yych;
-	unsigned char			*e;
+	ulp_err						err = {NULL, ULP_OK};
+	struct sockaddr_storage		peeraddr;
+	socklen_t					addrlen = sizeof(peeraddr);
+
+	printf("In accept_handler\n");
+
+	ULP_CHECK(finally, err, ulp_getpeername(c, (struct sockaddr*)&peeraddr, &addrlen));
+
+	if (peeraddr.ss_family == AF_UNIX) {
+		const char	msg[] = "sorry, uds not allowed at the moment\n";
+		printf("rejecting uds connection\n");
+		ULP_CHECK(finally, err, ulp_send(c, msg, sizeof(msg)-1));
+		return 0;
+	}
 
 	if (in->parser_private == NULL) {
 		in->parser_private = init_testproto_parser();
 		in->parser_private_release = free_testproto_parser;
 		in->shift_tags = shift_testproto_tags;
 	}
+finally:
+	if (err.msg) {
+		return 0;
+	} else {
+		return 1;
+	}
+}
+
+//>>>
+enum ulp_parser_status parse_testproto(struct ulp_con* c, struct ulp_input*const in, void* cdata) //<<<
+{
 	struct testproto_private*const	p = in->parser_private;
 	struct testproto_tags*const		tags = &p->tags;
+	testproto_got_packet*			cb = cdata;
+	unsigned char					yych;
+	unsigned char					*e;
 
 loop:
 	/*!re2c

@@ -91,20 +91,28 @@ ulp_err ulp_close_con(struct ulp_con* c) //<<<
 {
 	ulp_err		err = {NULL, ULP_OK};
 
-	if (c->epollfd != -1) {
-		epoll_ctl(c->epollfd, EPOLL_CTL_DEL, c->fd, NULL);
-		c->epollfd = -1;
+	if (c->out.iovcnt && !c->closing) {
+		if (-1 == shutdown(c->fd, SHUT_RD))
+			THROW_POSIX(finally, err, "shutdown con fd, read side");
+
+		/* Flag this connection as closing, write_con will complete the close once the queued output has been drained */
+		c->closing = 1;
+	} else {
+		if (c->epollfd != -1) {
+			epoll_ctl(c->epollfd, EPOLL_CTL_DEL, c->fd, NULL);
+			c->epollfd = -1;
+		}
+
+		if (-1 == shutdown(c->fd, SHUT_RDWR))
+			THROW_POSIX(finally, err, "shutdown con fd");
+
+		if (-1 == close(c->fd))
+			THROW_POSIX(finally, err, "close con fd");
+
+		c->fd = -1;
+
+		ulp_call_hooks(&c->close_hooks, c);
 	}
-
-	if (-1 == shutdown(c->fd, SHUT_RDWR))
-		THROW_POSIX(finally, err, "shutdown con fd");
-
-	if (-1 == close(c->fd))
-		THROW_POSIX(finally, err, "close con fd");
-
-	c->fd = -1;
-
-	ulp_call_hooks(&c->close_hooks, c);
 
 finally:
 	return err;
@@ -123,8 +131,8 @@ int read_con(struct ulp_con* c) //<<<
 		if (free < 1) {
 			/* Input too long for receive buffer */
 			DBG("Input too long for receive buffer\n");
+			closed = c->out.iovcnt == 0;
 			ulp_close_con(c);
-			closed = 1;
 			goto finally;
 		}
 
@@ -157,14 +165,14 @@ int read_con(struct ulp_con* c) //<<<
 					goto finally;
 				default:
 					perror("Error reading from con fd");
+					closed = c->out.iovcnt == 0;
 					ulp_close_con(c);
-					closed = 1;
 					goto finally;
 			}
 		} else if (got == 0) {
 			printf("Connection socket closed\n");
+			closed = c->out.iovcnt == 0;
 			ulp_close_con(c);
-			closed = 1;
 			goto finally;
 		}
 
@@ -180,13 +188,13 @@ int read_con(struct ulp_con* c) //<<<
 			case ULP_PARSER_STATUS_OVERFLOW:
 			case ULP_PARSER_STATUS_ERROR:
 				DBG("Parse error\n");
+				closed = c->out.iovcnt == 0;
 				ulp_close_con(c);
-				closed = 1;
 				goto finally;
 
 			case ULP_PARSER_STATUS_CLOSE:
+				closed = c->out.iovcnt == 0;
 				ulp_close_con(c);
-				closed = 1;
 				goto finally;
 
 			default:
@@ -231,8 +239,11 @@ int write_con(struct ulp_con* c) //<<<
 		.msg_iovlen		= out->iovcnt
 	}, flags);
 
+again:
 	if (sentbytes < 0) {
 		switch (errno) {
+			case EINTR: goto again;
+
 #if EAGAIN != EWOULDBLOCK
 			case EWOULDBLOCK:
 #endif
@@ -243,6 +254,12 @@ int write_con(struct ulp_con* c) //<<<
 
 			default:
 				perror("sendmsg");
+
+				for (int i=0; i<out->iovcnt; i++)
+					if (out->iov_release[i].release)
+						(out->iov_release[i].release)(out->iov_release[i].cdata);
+				out->iovcnt = 0;
+
 				ulp_close_con(c);
 				closed = 1;
 				rc = 1;
@@ -252,7 +269,7 @@ int write_con(struct ulp_con* c) //<<<
 
 	size_t remain = sentbytes;
 	int i = 0;
-	while (remain > out->iov[i].iov_len) {
+	while (remain && remain >= out->iov[i].iov_len) {
 		remain -= out->iov[i].iov_len;
 		if (out->iov_release[i].release)
 			(out->iov_release[i].release)(out->iov_release[i].cdata);
@@ -274,6 +291,11 @@ int write_con(struct ulp_con* c) //<<<
 	if (out->iovcnt) {
 		if (c->epollfd == -1)
 			io_thread_register_con(c);
+	} else if (c->closing) {
+		// Queued output has drained, close
+		ulp_close_con(c);
+		closed = 1;
+		goto finally;
 	}
 
 finally:
@@ -295,7 +317,7 @@ void io_ready(void* con_, uint32_t events) //<<<
 {
 	struct ulp_con*	c = con_;
 
-	if (events & EPOLLIN)
+	if (events & EPOLLIN && !c->closing)
 		if (read_con(c))
 			return;			// Socket was closed, skip write step
 
@@ -313,6 +335,16 @@ void free_con(struct ulp_rc_thing* aux, void* data) //<<<
 		for (int i=0; i<out->iovcnt; i++)
 			if (out->iov_release[i].release)
 				(out->iov_release[i].release)(out->iov_release[i].cdata);
+		out->iovcnt = 0;
+
+		if (out->iov != (struct iovec*)&out->iov_static) {
+			free(out->iov);
+			out->iov = (struct iovec*)&out->iov_static;
+		}
+		if (out->iov_release != (struct release_iov_segment*)&out->iov_release_static) {
+			free(out->iov_release);
+			out->iov_release = (struct release_iov_segment*)&out->iov_release_static;
+		}
 
 		if (c->in.parser_private_release) {
 			(c->in.parser_private_release)(c->in.parser_private);
@@ -402,7 +434,12 @@ int accept_thread(void* lh_) //<<<
 		};
 		ulp_register_hook_cb(&c->close_hooks, close_hook);
 
-		read_con(c);
+		if (lh->accept_handler && !(lh->accept_handler)(c, &c->in, lh->cdata)) {
+			DBG("Connection rejected by accept handler");
+			ulp_close_con(c);
+		} else {
+			read_con(c);
+		}
 	}
 
 finally:
@@ -429,7 +466,10 @@ ulp_err ulp_start_listen_(struct ulp_start_listen_args args) //<<<
 		if (args.service)
 			THROW_ERR(finally, err, "service not supported for unix domain sockets");
 
-		strcpy(uds.sun_path, args.node);
+		if (strlen(args.node) > 107)
+			THROW_ERR(finally, err, "unix domain socket path too long");
+
+		strncpy(uds.sun_path, args.node, 107);
 		if (-1 == unlink(uds.sun_path))
 			if (errno != ENOENT)
 				THROW_POSIX(finally, err, "unlinking socket");
@@ -477,6 +517,7 @@ ulp_err ulp_start_listen_(struct ulp_start_listen_args args) //<<<
 		*lh = (struct ulp_listen_handle){
 			.next				= last_lh,
 			.listen_fd			= s,
+			.accept_handler		= args.accept,
 			.parser				= args.parser,
 			.cdata				= args.cdata,
 			.type				= addr->ai_family == AF_UNIX ? ULP_UDS : ULP_INET
@@ -587,6 +628,18 @@ finally:
 		if (!(args.flags & ULP_MORE) && !out->waiting)
 			write_con(args.c);
 
+	return err;
+}
+
+//>>>
+ulp_err ulp_getpeername(struct ulp_con* c, struct sockaddr*restrict addr, socklen_t*restrict addrlen) //<<<
+{
+	ulp_err		err = {NULL, ULP_OK};
+
+	if (-1 == getpeername(c->fd, addr, addrlen))
+		THROW_POSIX(finally, err, "getpeername");
+
+finally:
 	return err;
 }
 

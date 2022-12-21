@@ -43,6 +43,7 @@ struct ulp_listen_handle {
 	void*						cdata;			// Opaque pointer registered at start_listen, passed to parser
 	thrd_t						accept_thread_id;
 	enum listen_type			type;
+	ulp_accept*					accept_handler;
 };
 
 struct io_ready_data {
@@ -82,6 +83,7 @@ struct ulp_con {
 	int						epollfd;		// -1 if not registered with epoll
 	struct io_ready_data	io_ready_data;
 	struct ulp_dlist		close_hooks;
+	int						closing;
 };
 
 /*
