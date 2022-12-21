@@ -73,6 +73,7 @@ int main(int argc, char** argv) //<<<
 {
 	ulp_err		err = {NULL, ULP_OK};
 	struct ulp_listen_handle*	lh = NULL;
+	struct ulp_listen_handle*	lh_uds = NULL;
 
 	ULP_CHECK(finally, err, ulp_init());
 
@@ -84,9 +85,17 @@ int main(int argc, char** argv) //<<<
 				.lh			= &lh
 	));
 
+	ULP_CHECK(finally, err,
+			ulp_start_listen("/tmp/ulp.sock",
+				.parser		= parse_testproto,
+				.cdata		= got_packet,
+				.lh			= &lh_uds
+	));
+
 	mainloop();
 
 	ulp_stop_listen(lh);
+	ulp_stop_listen(lh_uds);
 	ulp_shutdown();
 
 finally:

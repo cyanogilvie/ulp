@@ -356,8 +356,9 @@ int accept_thread(void* lh_) //<<<
 		}
 
 		int one = 1;
-		if (setsockopt(con_fd, SOL_SOCKET, SO_ZEROCOPY, &one, sizeof(one)))
-			perror("setsockopt zerocopy");
+		if (lh->type == ULP_INET)
+			if (setsockopt(con_fd, SOL_SOCKET, SO_ZEROCOPY, &one, sizeof(one)))
+				perror("setsockopt zerocopy");
 
 		struct ulp_con*	c = malloc(sizeof *c);
 		*c = (struct ulp_con){
@@ -415,29 +416,53 @@ ulp_err ulp_start_listen_(struct ulp_start_listen_args args) //<<<
 {
 	ulp_err				err = {NULL, ULP_OK};
 	struct addrinfo*	addrs = NULL;
-	struct addrinfo		hints = {
-		.ai_flags		= AI_PASSIVE,
-		.ai_family		= AF_UNSPEC,
-		.ai_socktype	= SOCK_STREAM,
-		.ai_protocol	= IPPROTO_TCP
-	};
 	struct ulp_listen_handle*	lh = NULL;
+	struct addrinfo		static_addr = {0};
+	struct sockaddr_un	uds = {
+		.sun_family		= AF_UNIX
+	};
 
 	if (args.parser == NULL)
 		THROW_ERR(finally, err, "parser cannot be NULL", ULP_ERR_BADARGS);
 
-	const int rc = getaddrinfo(args.node, args.service, &hints, &addrs);
-	if (rc != 0)
-		THROW_ERR(finally, err, "getaddrinfo: ", .detail=gai_strerror(rc), .code=ULP_ERR_GETADDRINFO);
+	if (args.node[0] == '/') { // unix domain socket
+		if (args.service)
+			THROW_ERR(finally, err, "service not supported for unix domain sockets");
+
+		strcpy(uds.sun_path, args.node);
+		if (-1 == unlink(uds.sun_path))
+			if (errno != ENOENT)
+				THROW_POSIX(finally, err, "unlinking socket");
+
+		static_addr = (struct addrinfo){
+			.ai_family		= AF_UNIX,
+			.ai_socktype	= SOCK_STREAM,
+			.ai_addr		= (struct sockaddr*)&uds,
+			.ai_addrlen		= sizeof(uds)
+		};
+
+		addrs = &static_addr;
+	} else {
+		struct addrinfo		hints = {
+			.ai_flags		= AI_PASSIVE,
+			.ai_family		= AF_UNSPEC,
+			.ai_socktype	= SOCK_STREAM,
+			.ai_protocol	= IPPROTO_TCP
+		};
+
+		const int rc = getaddrinfo(args.node, args.service, &hints, &addrs);
+		if (rc != 0)
+			THROW_ERR(finally, err, "getaddrinfo: ", .detail=gai_strerror(rc), .code=ULP_ERR_GETADDRINFO);
+	}
 
 	for (struct addrinfo* addr=addrs; addr; addr=addr->ai_next) {
 		const int	s = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
 		thrd_t		accept_thread_id;
-		const int	enabled = 1;
 
 		if (s == -1)
 			THROW_POSIX(finally, err, "socket failed");
 
+		const int	enabled = 1;
 		if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &enabled, sizeof(int)) == -1)
 			THROW_POSIX(finally, err, "setsockopt failed");
 
@@ -453,7 +478,8 @@ ulp_err ulp_start_listen_(struct ulp_start_listen_args args) //<<<
 			.next				= last_lh,
 			.listen_fd			= s,
 			.parser				= args.parser,
-			.cdata				= args.cdata
+			.cdata				= args.cdata,
+			.type				= addr->ai_family == AF_UNIX ? ULP_UDS : ULP_INET
 		};
 		if (thrd_success != thrd_create(&accept_thread_id, &accept_thread, lh))
 			THROW_ERR(finally, err, "Could not create accept thread");
@@ -471,7 +497,7 @@ ulp_err ulp_start_listen_(struct ulp_start_listen_args args) //<<<
 	lh = NULL;
 
 finally:
-	if (addrs) {
+	if (addrs && addrs != &static_addr) {
 		freeaddrinfo(addrs);
 		addrs = NULL;
 	}

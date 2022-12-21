@@ -7,6 +7,8 @@
 
 #include "ulp.h"
 
+#include <sys/un.h>
+
 #define ERR(...)	(ulp_err){__VA_ARGS__}
 
 #define THROW_ERR(label, var, ...)				\
@@ -29,12 +31,18 @@
 
 typedef void (io_ready_cb)(void* cdata, uint32_t events);
 
+enum listen_type {
+	ULP_INET,
+	ULP_UDS
+};
+
 struct ulp_listen_handle {
 	struct ulp_listen_handle*	next;
 	int							listen_fd;
 	ulp_parser*					parser;
 	void*						cdata;			// Opaque pointer registered at start_listen, passed to parser
 	thrd_t						accept_thread_id;
+	enum listen_type			type;
 };
 
 struct io_ready_data {
