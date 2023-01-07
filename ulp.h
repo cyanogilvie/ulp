@@ -26,6 +26,9 @@ enum ulp_err_code {
 	ULP_ERR_BADARGS,
 	ULP_ERR_GETADDRINFO,
 	ULP_ERR_ERRNO,
+	ULP_ERR_CONNECT,
+	ULP_ERR_TIMEOUT,
+	ULP_ERR_QUEUE_EMPTY,
 
 	ULP_ERR_END
 };
@@ -38,6 +41,11 @@ typedef struct ulp_err {
 } ulp_err;
 
 #define ULP_CHECK(label, var, call)		do { var = call; if (var.msg) goto label; } while(0);
+#define ULP_THROW_POSIX(label, var, m, ...)		\
+	do {										\
+		(var) = (ulp_err){.code=ULP_ERR_ERRNO, .posix=errno, .msg=(m), __VA_ARGS__};	\
+		goto label;								\
+	} while(0);
 
 #include "ulp_dlist.h"
 #include "ulp_obstack_pool.h"
@@ -106,6 +114,7 @@ struct ulp_start_listen_args {
 	ulp_parser*					parser;
 	void*						cdata;
 	struct ulp_listen_handle**	lh;
+	struct ulp_listen_handle*	link_lh;
 };
 ulp_err ulp_start_listen_(struct ulp_start_listen_args);
 #define ulp_start_listen(n, ...) ulp_start_listen_((struct ulp_start_listen_args){.node=(n), __VA_ARGS__})
@@ -113,7 +122,7 @@ ulp_err ulp_start_listen_(struct ulp_start_listen_args);
 ulp_err ulp_stop_listen(struct ulp_listen_handle* lh);
 ulp_err ulp_close_con(struct ulp_con* c);
 ulp_err ulp_init_msg_queue(struct ulp_msg_queue* q);
-void ulp_deinit_msg_queue(struct ulp_msg_queue* q);
+ulp_err ulp_deinit_msg_queue(struct ulp_msg_queue* q);
 ulp_err ulp_getpeername(struct ulp_con* c, struct sockaddr*restrict addr, socklen_t*restrict addrlen);
 
 // ulp_send flags:
@@ -126,7 +135,21 @@ struct ulp_send_args {
 	ulp_rc_releaser*	release;
 	void*				release_cdata;
 };
-ulp_err ulp_send_(struct ulp_send_args args);
+ulp_err ulp_send_(struct ulp_send_args);
 #define ulp_send(c, ...) ulp_send_((struct ulp_send_args){.c=(c), __VA_ARGS__})
+
+struct ulp_connect_args {
+	struct ulp_con**	c;
+	const char*			node;
+	const char*			service;
+	ulp_parser*			parser;
+	void*				cdata;
+	int					async;		// Non-blocking connect.  Wait for writable
+	ulp_shift_tags*		shift_tags;
+	void*				parser_private;
+	ulp_rc_releaser*	parser_private_release;
+};
+ulp_err ulp_connect_(struct ulp_connect_args);
+#define ulp_connect(...) ulp_connect_((struct ulp_connect_args){__VA_ARGS__});
 
 #endif

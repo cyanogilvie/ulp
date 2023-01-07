@@ -5,6 +5,7 @@ struct ulp_msg {
 	struct ulp_dlist_elem	dl;		// Must be first
 	struct ulp_con*			con;
 	void*					data;	// Message-type specific data
+	ulp_rc_releaser*		free;	// Optional releaser function for data
 };
 
 typedef void*	(ulp_init_handler)(void);
@@ -24,5 +25,25 @@ struct ulp_init_msg_handler_pool_args {
 };
 ulp_err ulp_init_msg_handler_pool_(struct ulp_init_msg_handler_pool_args);
 #define ulp_init_msg_handler_pool(p, ...) ulp_init_msg_handler_pool_((struct ulp_init_msg_handler_pool_args){.min=1, .max=1, .pool=(p), __VA_ARGS__})
+
+struct ulp_msg_queue_post_args {
+	struct ulp_msg_queue*		q;
+	struct ulp_con*				c;
+	void*						data;
+	ulp_rc_releaser*			free;
+};
+#define ulp_msg_queue_post(...) ulp_msg_queue_post_((struct ulp_msg_queue_post_args){__VA_ARGS__})
+void ulp_msg_queue_post_(struct ulp_msg_queue_post_args);
+
+struct ulp_msg_queue_get_args {
+	struct ulp_msg_queue*	q;
+	struct ulp_con*			c;
+	struct ulp_msg**		msg;
+	int64_t					timeout;	// nanoseconds, 0 means no timeout, <0 means don't wait
+};
+#define ulp_msg_queue_get(...) ulp_msg_queue_get_((struct ulp_msg_queue_get_args){__VA_ARGS__})
+ulp_err ulp_msg_queue_get_(struct ulp_msg_queue_get_args args);
+
+void ulp_msg_free(struct ulp_msg* msg);
 
 #endif

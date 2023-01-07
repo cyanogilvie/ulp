@@ -44,6 +44,8 @@ struct ulp_listen_handle {
 	thrd_t						accept_thread_id;
 	enum listen_type			type;
 	ulp_accept*					accept_handler;
+	struct ulp_dlist			close_hooks;
+	struct obstack*				ob;
 };
 
 struct io_ready_data {
@@ -73,6 +75,7 @@ struct output {
 
 
 struct ulp_con {
+	struct ulp_rc_thing		rc;				// Must be first
 	int						fd;
 	mtx_t					mutex;
 	ulp_parser*				parser;
