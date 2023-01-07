@@ -7,3 +7,5 @@ generated
 blocking_accept
 dbg_blocking_accept
 tags
+local
+perf.data*

@@ -16,6 +16,8 @@ struct testproto_private {
 	struct obstack*			ob;
 	struct testproto_tags	tags;
 	int						state;
+	unsigned char			yych;
+	unsigned int			yyaccept;
 
 	/*
 	int					cond;
@@ -68,12 +70,14 @@ int accept_handler(struct ulp_con* c, struct ulp_input* in, void* cdata) //<<<
 
 	ULP_CHECK(finally, err, ulp_getpeername(c, (struct sockaddr*)&peeraddr, &addrlen));
 
+	/*
 	if (peeraddr.ss_family == AF_UNIX) {
 		const char	msg[] = "sorry, uds not allowed at the moment\n";
 		printf("rejecting uds connection\n");
 		ULP_CHECK(finally, err, ulp_send(c, msg, sizeof(msg)-1));
 		return 0;
 	}
+	*/
 
 	if (in->parser_private == NULL) {
 		in->parser_private = init_testproto_parser();
@@ -94,13 +98,14 @@ enum ulp_parser_status parse_testproto(struct ulp_con* c, struct ulp_input*const
 	struct testproto_private*const	p = in->parser_private;
 	struct testproto_tags*const		tags = &p->tags;
 	testproto_got_packet*			cb = cdata;
-	unsigned char					yych;
 	unsigned char					*e;
 
 loop:
 	/*!re2c
 		re2c:api:style = free-form;
 		re2c:tags:expression   = "tags->@@";
+		re2c:variable:yych     = "p->yych";
+		re2c:variable:yyaccept = "p->yyaccept";
         re2c:define:YYCTYPE    = "unsigned char";
         re2c:define:YYCURSOR   = "in->cur";
         re2c:define:YYMARKER   = "in->mar";
@@ -122,7 +127,7 @@ loop:
 		}
 
 		"stop" eol {
-			ulp_send(c, "stopping\n", sizeof("stopping\n"), 0, NULL, NULL);
+			ulp_send(c, "stopping\n", sizeof("stopping\n")-1, 0, NULL, NULL);
 			g_mainloop_running = 0;
 			if (-1 == write(mainloop_wakeup_fd, &(uint64_t){1}, 8))
 				perror("write on mainloop_wakeup eventfd");

@@ -9,14 +9,16 @@ struct ulp_rc_thing {
 	ulp_rc_releaser*	free;
 };
 
-static inline void ulp_rc_incref(struct ulp_rc_thing* thing) //<<<
+static inline void ulp_rc_incref(void* _thing) //<<<
 {
+	struct ulp_rc_thing*	thing = _thing;
 	thing->refcount++;
 }
 
 //>>>
-static inline void ulp_rc_decref(struct ulp_rc_thing* thing) //<<<
+static inline void ulp_rc_decref(void* _thing) //<<<
 {
+	struct ulp_rc_thing*	thing = _thing;
 	if (--thing->refcount <= 0 && thing->free)
 		thing->free(thing->data);
 }
