@@ -7,7 +7,7 @@ AR = ar
 RANLIB = ranlib
 VALGRIND = valgrind
 
-CFLAGS = -std=gnu17 -Wall -Wextra -Werror -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-unused-parameter -I.
+CFLAGS = -std=gnu17 -fPIC -Wall -Wextra -Werror -Wpointer-arith -Wno-missing-braces -Wno-missing-field-initializers -Wno-unused-parameter -I.
 CFLAGS_DEBUG = -ggdb3 -Og -DPURIFY
 CFLAGS_OPTIMIZE = -ggdb3 -Ofast -march=native -mtune=native -flto
 CFLAGS_PROFILE = -pg
@@ -46,6 +46,9 @@ $(RE2C_OBJS): %.o: generated/%.c Makefile
 libulp.a: $(OBJS)
 	echo "create $@\n $(foreach mod,$(OBJS),addmod $(mod)\n) save\n end\n" | $(AR) -M
 	$(RANLIB) $@
+
+libulp.so: $(OBJS)
+	$(CC) -o $@ --shared -fPIC $(OBJS)
 
 blocking_accept: $(RE2C_OBJS) libulp.a
 	$(CC) -o $@ $(CFLAGS) $(CFLAGS_OPTIMIZE) test.o $(LDFLAGS) $(PGO) testproto.o testproto_client.o -L. -lulp
@@ -113,12 +116,13 @@ tags: *.re *.h *.c Makefile
 	-ctags-exuberant --recurse=yes --langmap=c:+.re $(addprefix --exclude=,$(subst .o,.h,$(RE2C_OBJS))) $(addprefix --exclude=,$(subst .o,.c,$(RE2C_OBJS))) *.c *.h *.re
 
 clean:
-	-rm -f core blocking_accept dbg_blocking_accept prof_blocking_accept $(OBJS) $(addprefix dbg_,$(OBJS)) $(addprefix prof_,$(OBJS)) tags generated/* cachegrind.out gmon.out
+	-rm -f core blocking_accept dbg_blocking_accept prof_blocking_accept libulp.a libulp.so $(OBJS) $(addprefix dbg_,$(OBJS)) $(addprefix prof_,$(OBJS)) tags generated/* cachegrind.out gmon.out
 
-install: libulp.a
+install: libulp.a libulp.so
 	mkdir -p $(DESTDIR)$(PREFIX)/lib
 	mkdir -p $(DESTDIR)$(PREFIX)/include
 	cp libulp.a $(DESTDIR)$(PREFIX)/lib/
+	cp libulp.so $(DESTDIR)$(PREFIX)/lib/
 	cp ulp.h ulp_dlist.h ulp_msg_handlers.h ulp_obstack_pool.h ulp_refcounted.h ulp_cb.h $(DESTDIR)$(PREFIX)/include/
 
 .PHONY: all clean vim-gdb valgrind cachegrind install test profile perf perfstats

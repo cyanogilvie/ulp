@@ -151,7 +151,7 @@ int read_con(struct ulp_con* c) //<<<
 
 	for (;;) {
 		struct ulp_input *const	in = &c->in;
-		size_t					shift = in->tok - in->buf;
+		ssize_t					shift = in->buf - in->tok;
 		size_t					free = in->buf_size - (in->lim - in->tok) -1;
 
 		if (free < 1) {
@@ -163,11 +163,11 @@ int read_con(struct ulp_con* c) //<<<
 		}
 
 		if (shift) {
-			memmove(in->buf, in->tok, in->buf_size - shift);
-			in->lim -= shift;
-			in->cur -= shift;
-			in->mar -= shift;
-			in->tok -= shift;
+			memmove(in->buf, in->tok, in->buf_size + shift);
+			in->lim += shift;
+			in->cur += shift;
+			in->mar += shift;
+			in->tok += shift;
 			if (in->shift_tags)
 				in->shift_tags(in, shift);
 		}
@@ -198,8 +198,9 @@ int read_con(struct ulp_con* c) //<<<
 		} else if (got == 0) {
 			printf("Connection socket closed\n");
 			closed = c->out.iovcnt == 0;
-			ulp_close_con(c);
-			goto finally;
+			c->eof = 1;
+			//ulp_close_con(c);
+			//goto finally;
 		}
 
 		in->lim += got;
@@ -209,6 +210,7 @@ int read_con(struct ulp_con* c) //<<<
 
 		switch (status) {
 			case ULP_PARSER_STATUS_WAITING:
+				if (c->eof) goto finally;
 				break;
 
 			case ULP_PARSER_STATUS_OVERFLOW:
@@ -221,6 +223,9 @@ int read_con(struct ulp_con* c) //<<<
 			case ULP_PARSER_STATUS_CLOSE:
 				closed = c->out.iovcnt == 0;
 				ulp_close_con(c);
+				goto finally;
+
+			case ULP_PARSER_STATUS_DONE:
 				goto finally;
 
 			default:
@@ -830,6 +835,12 @@ ulp_err ulp_getpeername(struct ulp_con* c, struct sockaddr*restrict addr, sockle
 
 finally:
 	return err;
+}
+
+//>>>
+int ulp_eof(struct ulp_con* c) //<<<
+{
+	return c->eof;
 }
 
 //>>>

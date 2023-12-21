@@ -20,7 +20,19 @@ static inline void ulp_rc_decref(void* _thing) //<<<
 {
 	struct ulp_rc_thing*	thing = _thing;
 	if (--thing->refcount <= 0 && thing->free)
-		thing->free(thing->data);
+		thing->free(thing->data ? thing->data : thing);
+}
+
+//>>>
+static inline void ulp_rc_replace(void* _target, void* _replacement) //<<<
+{
+	struct ulp_rc_thing**	target		= _target;
+	struct ulp_rc_thing*	replacement	= _replacement;
+	struct ulp_rc_thing*	old = *target;
+
+	*target = replacement;
+	if (*target) ulp_rc_incref(*target);
+	if (old) ulp_rc_decref(old);
 }
 
 //>>>

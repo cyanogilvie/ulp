@@ -9,3 +9,5 @@ dbg_blocking_accept
 tags
 local
 perf.data*
+*.gcda
+*.gcno

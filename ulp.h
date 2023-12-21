@@ -29,6 +29,7 @@ enum ulp_err_code {
 	ULP_ERR_CONNECT,
 	ULP_ERR_TIMEOUT,
 	ULP_ERR_QUEUE_EMPTY,
+	ULP_ERR_UNSPEC,
 
 	ULP_ERR_END
 };
@@ -40,12 +41,17 @@ typedef struct ulp_err {
 	int					posix;
 } ulp_err;
 
-#define ULP_CHECK(label, var, call)		do { var = call; if (var.msg) goto label; } while(0);
+#define ULP_CHECK(label, var, call)		do { var = call; if (var.msg) goto label; } while(0)
+#define ULP_THROW(label, var, m, ...)									\
+	do {																\
+		(var) = (ulp_err){.code=ULP_ERR_UNSPEC, .msg=(m), __VA_ARGS__};	\
+		goto label;														\
+	} while(0)
 #define ULP_THROW_POSIX(label, var, m, ...)		\
 	do {										\
 		(var) = (ulp_err){.code=ULP_ERR_ERRNO, .posix=errno, .msg=(m), __VA_ARGS__};	\
 		goto label;								\
-	} while(0);
+	} while(0)
 
 #include "ulp_dlist.h"
 #include "ulp_obstack_pool.h"
@@ -58,7 +64,8 @@ enum ulp_parser_status {
 	ULP_PARSER_STATUS_WAITING,
 	ULP_PARSER_STATUS_OVERFLOW,
 	ULP_PARSER_STATUS_CLOSE,
-	ULP_PARSER_STATUS_ERROR
+	ULP_PARSER_STATUS_ERROR,
+	ULP_PARSER_STATUS_DONE
 };
 
 typedef enum ulp_parser_status (ulp_parser)(struct ulp_con* con, struct ulp_input*const in, void* cdata);
@@ -70,21 +77,16 @@ struct ulp_msg_queue {
 	struct ulp_dlist	msgs;		// List of struct msg
 };
 
-typedef void (ulp_shift_tags)(struct ulp_input* c, size_t shift);
-
-struct ulp_mtagpool {
-	struct obstack*		ob;
-	void*				start;
-};
+typedef void (ulp_shift_tags)(struct ulp_input* c, ssize_t shift);
 
 struct ulp_mtag {
 	struct ulp_mtag*	prev;
 	ssize_t				dist;
 };
 
-static inline void ulp_mtag(struct ulp_mtag** pmt, const unsigned char* b, const unsigned char* t, struct ulp_mtagpool* mtp) //<<<
+static inline void ulp_mtag(struct ulp_mtag** pmt, const unsigned char* b, const unsigned char* t, struct obstack* ob) //<<<
 {
-	struct ulp_mtag*    mt = obstack_alloc(mtp->ob, sizeof(struct ulp_mtag));
+	struct ulp_mtag*    mt = obstack_alloc(ob, sizeof(struct ulp_mtag));
 	mt->prev = *pmt;
 	mt->dist = t - b;
 	*pmt = mt;
@@ -102,6 +104,7 @@ struct ulp_input {
 	ulp_rc_releaser*	parser_private_release;
 	size_t				buf_size;
 	unsigned char*		buf;
+	int					eof;		// Read side has closed
 };
 
 ulp_err ulp_init();
@@ -124,6 +127,8 @@ ulp_err ulp_close_con(struct ulp_con* c);
 ulp_err ulp_init_msg_queue(struct ulp_msg_queue* q);
 ulp_err ulp_deinit_msg_queue(struct ulp_msg_queue* q);
 ulp_err ulp_getpeername(struct ulp_con* c, struct sockaddr*restrict addr, socklen_t*restrict addrlen);
+int ulp_eof(struct ulp_con* c);
+
 
 // ulp_send flags:
 #define ULP_MORE		1<<0		// Signal that there is more data about to be queued up, defer sending

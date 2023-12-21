@@ -128,7 +128,7 @@ ulp_err ulp_init_msg_handler_pool_(struct ulp_init_msg_handler_pool_args args) /
 	locked = 1;
 
 	while (pool->avail < pool->min)
-		ULP_CHECK(finally, err, start_handler(pool))
+		ULP_CHECK(finally, err, start_handler(pool));
 
 finally:
 	if (locked)

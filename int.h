@@ -87,6 +87,7 @@ struct ulp_con {
 	struct io_ready_data	io_ready_data;
 	struct ulp_dlist		close_hooks;
 	int						closing;
+	int						eof;
 };
 
 /*

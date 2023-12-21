@@ -16,21 +16,20 @@ struct testproto_client_private {
 
 	/*
 	int					cond;
-	struct ulp_mtagpool	mtp;
 	void*				msg;		// Message-specific container for the message being parsed
 	*/
 };
 
 enum ulp_parser_status parse_testproto_client(struct ulp_con* con, struct ulp_input* in, void* cdata);
-void shift_testproto_client_tags(struct ulp_input* in, size_t shift);
+void shift_testproto_client_tags(struct ulp_input* in, ssize_t shift);
 void free_testproto_client_parser(void* parser_private);
 struct testproto_client_private* init_testproto_client_parser();
 /*!header:re2c:off */ //>>>
 
-void shift_testproto_client_tags(struct ulp_input* in, size_t shift) //<<<
+void shift_testproto_client_tags(struct ulp_input* in, ssize_t shift) //<<<
 {
 	struct testproto_client_private*	p = in->parser_private;
-	/*!stags:re2c format = "\tif (p->tags.@@) p->tags.@@ -= shift;\n"; */
+	/*!stags:re2c format = "\tif (p->tags.@@) p->tags.@@ += shift;\n"; */
 }
 
 //>>>

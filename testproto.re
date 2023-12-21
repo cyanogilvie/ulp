@@ -21,19 +21,19 @@ struct testproto_private {
 
 	/*
 	int					cond;
-	struct ulp_mtagpool	mtp;
 	void*				msg;		// Message-specific container for the message being parsed
 	*/
 };
 
 int accept_handler(struct ulp_con* c, struct ulp_input* in, void* cdata);
+void shift_testproto_tags(struct ulp_input* in, ssize_t shift);
 enum ulp_parser_status parse_testproto(struct ulp_con* con, struct ulp_input* in, void* cdata);
 /*!header:re2c:off */ //>>>
 
-void shift_testproto_tags(struct ulp_input* in, size_t shift) //<<<
+void shift_testproto_tags(struct ulp_input* in, ssize_t shift) //<<<
 {
 	struct testproto_private*	p = in->parser_private;
-	/*!stags:re2c format = "\tif (p->tags.@@) p->tags.@@ -= shift;\n"; */
+	/*!stags:re2c format = "\tif (p->tags.@@) p->tags.@@ += shift;\n"; */
 }
 
 //>>>
