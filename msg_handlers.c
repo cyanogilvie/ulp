@@ -172,12 +172,17 @@ ulp_err ulp_msg_queue_get_(struct ulp_msg_queue_get_args args) //<<<
 				THROW_ERR(unlock, err, "Could not wait on msg_avail");
 		} else {
 			if (tp.tv_nsec == -1) {
-				if (-1 == clock_gettime(CLOCK_REALTIME, &tp))
-					THROW_POSIX(unlock, err, "clock_gettime");
+				if (args.timeout < 1000000000ULL * 86400 * 365) {	// Timeouts < 1 year are relative
+					if (-1 == clock_gettime(CLOCK_REALTIME, &tp))
+						THROW_POSIX(unlock, err, "clock_gettime");
 
-				uint64_t	t = tp.tv_nsec + args.timeout;
-				tp.tv_sec += t / 1000000000ULL;
-				tp.tv_nsec = t % 1000000000ULL;
+					const uint64_t	t = tp.tv_nsec + args.timeout;
+					tp.tv_sec += t / 1000000000ULL;
+					tp.tv_nsec = t % 1000000000ULL;
+				} else {
+					tp.tv_sec  = args.timeout / 1000000000ULL;
+					tp.tv_nsec = args.timeout % 1000000000ULL;
+				}
 			}
 
 			switch (cnd_timedwait(&args.q->msg_avail, &args.q->mutex, &tp)) {
@@ -190,12 +195,13 @@ ulp_err ulp_msg_queue_get_(struct ulp_msg_queue_get_args args) //<<<
 unlock:
 	mtx_unlock(&args.q->mutex);
 
-	*args.msg = msg;
+	ulp_rc_replace(&args.c, msg);
 
 	if (msg == NULL && err.msg == NULL)
 		THROW_ERR(finally, err, "No messages waiting", .code=ULP_ERR_QUEUE_EMPTY);
 
 finally:
+	ulp_rc_replace(&msg, NULL);
 	return err;
 }
 

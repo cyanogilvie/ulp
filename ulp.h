@@ -23,6 +23,8 @@ struct ulp_listen_handle;
 enum ulp_err_code {
 	ULP_ERR_NONE=0,
 	ULP_OK,
+	ULP_BREAK,
+	ULP_CONTINUE,
 	ULP_ERR_BADARGS,
 	ULP_ERR_GETADDRINFO,
 	ULP_ERR_ERRNO,
@@ -30,6 +32,7 @@ enum ulp_err_code {
 	ULP_ERR_TIMEOUT,
 	ULP_ERR_QUEUE_EMPTY,
 	ULP_ERR_UNSPEC,
+	ULP_ERR_TCL,			// Error details left in a Tcl_Interp in .detail
 
 	ULP_ERR_END
 };
@@ -68,6 +71,7 @@ enum ulp_parser_status {
 	ULP_PARSER_STATUS_DONE
 };
 
+typedef ulp_err (ulp_foreach_cb)(void* item, void* cdata);
 typedef enum ulp_parser_status (ulp_parser)(struct ulp_con* con, struct ulp_input*const in, void* cdata);
 typedef int (ulp_accept)(struct ulp_con* con, struct ulp_input*const in, void* cdata);
 
@@ -116,13 +120,31 @@ struct ulp_start_listen_args {
 	ulp_accept*					accept;
 	ulp_parser*					parser;
 	void*						cdata;
+	ulp_rc_releaser*			cdata_release;
 	struct ulp_listen_handle**	lh;
 	struct ulp_listen_handle*	link_lh;
 };
 ulp_err ulp_start_listen_(struct ulp_start_listen_args);
-#define ulp_start_listen(n, ...) ulp_start_listen_((struct ulp_start_listen_args){.node=(n), __VA_ARGS__})
+#define ulp_start_listen(n_, ...) ulp_start_listen_((struct ulp_start_listen_args){.node=(n_), __VA_ARGS__})
 
 ulp_err ulp_stop_listen(struct ulp_listen_handle* lh);
+
+void* ulp_listen_cdata(struct ulp_listen_handle* lh);
+int ulp_listen_family(struct ulp_listen_handle* lh);
+
+struct ulp_listen_info_item {
+	struct sockaddr_storage*	addr;
+	socklen_t					addrlen;
+	struct ulp_listen_handle*	lh;
+};
+struct ulp_listen_info_args {
+	struct ulp_listen_handle*	lh;
+	ulp_foreach_cb*				cb;		// item is struct ulp_listen_info_item
+	void*						cdata;
+};
+ulp_err ulp_listen_info_(struct ulp_listen_info_args);
+#define ulp_listen_info(...) ulp_listen_info_((struct ulp_listen_info_args){__VA_ARGS__})
+
 ulp_err ulp_close_con(struct ulp_con* c);
 ulp_err ulp_init_msg_queue(struct ulp_msg_queue* q);
 ulp_err ulp_deinit_msg_queue(struct ulp_msg_queue* q);
@@ -134,14 +156,17 @@ int ulp_eof(struct ulp_con* c);
 #define ULP_MORE		1<<0		// Signal that there is more data about to be queued up, defer sending
 struct ulp_send_args {
 	struct ulp_con*		c;
-	const char*			data;
+	const void*			data;
 	size_t				len;
 	int					flags;
 	ulp_rc_releaser*	release;
 	void*				release_cdata;
 };
 ulp_err ulp_send_(struct ulp_send_args);
-#define ulp_send(c, ...) ulp_send_((struct ulp_send_args){.c=(c), __VA_ARGS__})
+#define ulp_send(con, ...) ulp_send_((struct ulp_send_args){.c=(con), __VA_ARGS__})
+
+ulp_err ulp_con_base(struct ulp_con* c, size_t* base);
+ulp_err ulp_con_discard_pending(struct ulp_con* c, size_t rewind_to_base);
 
 struct ulp_connect_args {
 	struct ulp_con**	c;
@@ -156,5 +181,8 @@ struct ulp_connect_args {
 };
 ulp_err ulp_connect_(struct ulp_connect_args);
 #define ulp_connect(...) ulp_connect_((struct ulp_connect_args){__VA_ARGS__});
+
+void ulp_con_set_cdata(struct ulp_con* c, void* cdata);
+void* ulp_con_get_cdata(struct ulp_con* c);
 
 #endif

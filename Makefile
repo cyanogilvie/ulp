@@ -1,6 +1,8 @@
 DESTDIR =
 PREFIX = /usr/local
 
+VER = 0.2
+
 CC = gcc
 RE2C = local/bin/re2c
 AR = ar
@@ -47,7 +49,7 @@ libulp.a: $(OBJS)
 	echo "create $@\n $(foreach mod,$(OBJS),addmod $(mod)\n) save\n end\n" | $(AR) -M
 	$(RANLIB) $@
 
-libulp.so: $(OBJS)
+libulp$(VER).so: $(OBJS)
 	$(CC) -o $@ --shared -fPIC $(OBJS)
 
 blocking_accept: $(RE2C_OBJS) libulp.a
@@ -116,13 +118,18 @@ tags: *.re *.h *.c Makefile
 	-ctags-exuberant --recurse=yes --langmap=c:+.re $(addprefix --exclude=,$(subst .o,.h,$(RE2C_OBJS))) $(addprefix --exclude=,$(subst .o,.c,$(RE2C_OBJS))) *.c *.h *.re
 
 clean:
-	-rm -f core blocking_accept dbg_blocking_accept prof_blocking_accept libulp.a libulp.so $(OBJS) $(addprefix dbg_,$(OBJS)) $(addprefix prof_,$(OBJS)) tags generated/* cachegrind.out gmon.out
+	-rm -f core blocking_accept dbg_blocking_accept prof_blocking_accept libulp.a libulp*.so $(OBJS) $(addprefix dbg_,$(OBJS)) $(addprefix prof_,$(OBJS)) tags generated/* cachegrind.out gmon.out
 
-install: libulp.a libulp.so
+install: libulp.a libulp$(VER).so
 	mkdir -p $(DESTDIR)$(PREFIX)/lib
 	mkdir -p $(DESTDIR)$(PREFIX)/include
 	cp libulp.a $(DESTDIR)$(PREFIX)/lib/
-	cp libulp.so $(DESTDIR)$(PREFIX)/lib/
+	cp libulp$(VER).so $(DESTDIR)$(PREFIX)/lib/
 	cp ulp.h ulp_dlist.h ulp_msg_handlers.h ulp_obstack_pool.h ulp_refcounted.h ulp_cb.h $(DESTDIR)$(PREFIX)/include/
 
-.PHONY: all clean vim-gdb valgrind cachegrind install test profile perf perfstats
+uninstall:
+	-rm -f $(DESTDIR)$(PREFIX)/lib/libulp.a
+	-rm -f $(DESTDIR)$(PREFIX)/lib/libulp*.so
+	-rm -f $(DESTDIR)$(PREFIX)/include/ulp*.h
+
+.PHONY: all clean vim-gdb valgrind cachegrind install uninstall test profile perf perfstats

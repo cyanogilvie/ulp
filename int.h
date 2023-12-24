@@ -31,18 +31,14 @@
 
 typedef void (io_ready_cb)(void* cdata, uint32_t events);
 
-enum listen_type {
-	ULP_INET,
-	ULP_UDS
-};
-
 struct ulp_listen_handle {
 	struct ulp_listen_handle*	next;
 	int							listen_fd;
 	ulp_parser*					parser;
 	void*						cdata;			// Opaque pointer registered at start_listen, passed to parser
+	ulp_rc_releaser*			cdata_release;
 	thrd_t						accept_thread_id;
-	enum listen_type			type;
+	int							type;			// socket address family, ie. AF_INET, AF_INET6, AF_UNIX
 	ulp_accept*					accept_handler;
 	struct ulp_dlist			close_hooks;
 	struct obstack*				ob;
@@ -63,6 +59,7 @@ struct release_iov_segment {
 struct output {
 	struct ulp_dlist_elem		dl;		// Must be first
 	mtx_t						mutex;
+	size_t						iov_base;	// iov[0] is the nth segment we've sent since opening
 	struct iovec*				iov;
 	struct iovec				iov_static[ULP_OUTPUT_IOV_STATIC_SIZE];
 	int							iovcnt;

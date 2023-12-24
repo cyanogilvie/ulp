@@ -77,7 +77,7 @@ static inline void ulp_dlist_remove(void* dlistPtr, void* elemPtr) //<<<
 //>>>
 static inline void* ulp_dlist_pop_head(void* dlistPtr) //<<<
 {
-	struct ulp_dlist*	dlist = dlistPtr;
+	struct ulp_dlist*		dlist = dlistPtr;
 	struct ulp_dlist_elem*	elem = NULL;
 
 	if (dlist->head) {

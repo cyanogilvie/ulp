@@ -9,10 +9,11 @@ struct ulp_rc_thing {
 	ulp_rc_releaser*	free;
 };
 
-static inline void ulp_rc_incref(void* _thing) //<<<
+static inline void* ulp_rc_incref(void* _thing) //<<<
 {
 	struct ulp_rc_thing*	thing = _thing;
 	thing->refcount++;
+	return thing;
 }
 
 //>>>

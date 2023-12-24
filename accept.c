@@ -313,6 +313,7 @@ again:
 	if (i) {
 		if (i < out->iovcnt) {
 			memmove(out->iov, out->iov+i, sizeof(struct iovec)*(out->iovcnt-i));
+			out->iov_base += i;
 			out->iovcnt -= i;
 		} else {
 			out->iovcnt = 0;
@@ -341,6 +342,42 @@ finally:
 	}
 
 	return closed;
+}
+
+//>>>
+ulp_err ulp_con_base(struct ulp_con* c, size_t* base) //<<<
+{
+	ulp_err			err = {NULL, ULP_OK};
+	struct output*	out = &c->out;
+
+	if (thrd_success != mtx_lock(&out->mutex)) THROW_ERR(finally, err, "Could not lock output mutex");
+	*base = out->iov_base;
+	if (thrd_success != mtx_unlock(&out->mutex)) THROW_ERR(finally, err, "Could not unlock output mutex");
+
+finally:
+	return err;
+}
+
+//>>>
+ulp_err ulp_con_discard_pending(struct ulp_con* c, size_t rewind_to_base) //<<<
+{
+	ulp_err		err = {NULL, ULP_OK};
+	struct output*	out = &c->out;
+
+	if (thrd_success != mtx_lock(&out->mutex)) THROW_ERR(finally, err, "Could not lock output mutex");
+	if (out->iov_base > rewind_to_base)
+		THROW_ERR(unlock, err, "Cannot rewind past iov_base, that ship has sailed");
+
+	for (int i=rewind_to_base-out->iov_base; i<out->iovcnt; i++)
+		if (out->iov_release[i].release)
+			(out->iov_release[i].release)(out->iov_release[i].cdata);
+	out->iovcnt -= rewind_to_base-out->iov_base;
+
+unlock:
+	if (thrd_success != mtx_unlock(&out->mutex)) THROW_ERR(finally, err, "Could not unlock output mutex");
+
+finally:
+	return err;
 }
 
 //>>>
@@ -422,7 +459,7 @@ int accept_thread(void* lh_) //<<<
 		}
 
 		int one = 1;
-		if (lh->type == ULP_INET)
+		if (lh->type == AF_INET || lh->type == AF_INET6)
 			if (setsockopt(con_fd, SOL_SOCKET, SO_ZEROCOPY, &one, sizeof(one)))
 				perror("setsockopt zerocopy");
 
@@ -559,12 +596,13 @@ ulp_err ulp_start_listen_(struct ulp_start_listen_args args) //<<<
 			.accept_handler		= args.accept,
 			.parser				= args.parser,
 			.cdata				= args.cdata,
-			.type				= addr->ai_family == AF_UNIX ? ULP_UDS : ULP_INET,
+			.cdata_release		= args.cdata_release,
+			.type				= addr->ai_family,
 			.ob					= ulp_obstack_pool_get(ULP_OBSTACK_POOL_MEDIUM)
 		};
 		s = -1;		// Hand off ownership of the socket to the listen_handle
 
-		if (lh->type == ULP_UDS) { // unix domain socket
+		if (lh->type == AF_UNIX) { // unix domain socket
 			struct ulp_hook_cb*	close_hook = obstack_alloc(lh->ob, sizeof *close_hook);
 			*close_hook = (struct ulp_hook_cb){
 				.hook_cb = unlink_sock,
@@ -646,7 +684,54 @@ ulp_err ulp_stop_listen(struct ulp_listen_handle* lh) //<<<
 		}
 
 		lh = lh->next;
+		if (this_lh->cdata_release) {
+			(this_lh->cdata_release)(this_lh->cdata);
+			this_lh->cdata = NULL;
+			this_lh->cdata_release = NULL;
+		}
 		free(this_lh);
+	}
+
+finally:
+	return err;
+}
+
+//>>>
+void* ulp_listen_cdata(struct ulp_listen_handle* lh) //<<<
+{
+	return lh->cdata;
+}
+
+//>>>
+int ulp_listen_family(struct ulp_listen_handle* lh) //<<<
+{
+	return lh->type;
+}
+
+//>>>
+ulp_err ulp_listen_info_(struct ulp_listen_info_args args) //<<<
+{
+	ulp_err		err = {NULL, ULP_OK};
+
+	if (args.lh == NULL) THROW_ERR(finally, err, "lh cannot be NULL", ULP_ERR_BADARGS);
+	if (args.cb == NULL) THROW_ERR(finally, err, "cb cannot be NULL", ULP_ERR_BADARGS);
+
+	for (struct ulp_listen_handle* lh=args.lh; lh; lh=lh->next) {
+		struct ulp_listen_info_item item = {
+			.addrlen	= sizeof(struct sockaddr_storage),
+			.lh			= lh,
+		};
+
+		if (-1 == getsockname(lh->listen_fd, (struct sockaddr*)&item.addr, &item.addrlen))
+			THROW_POSIX(finally, err, "getsockname failed");
+
+		err = args.cb(&item, args.cdata);
+		switch (err.code) {
+			case ULP_OK:		break;
+			case ULP_CONTINUE:	continue;
+			case ULP_BREAK: 	goto finally;
+			default:			goto finally;
+		}
 	}
 
 finally:
@@ -779,6 +864,8 @@ ulp_err ulp_send_(struct ulp_send_args args) //<<<
 	ulp_err			err = {NULL, ULP_OK};
 	struct output*	out = &args.c->out;
 
+	if (args.len == 0) goto finally;	// Can be used to trigger a write_con after a sequence with .flags=ULP_MORE
+
 	if (thrd_success != mtx_lock(&out->mutex))
 		THROW_ERR(finally, err, "ulp_send could not aquire the output mutex");
 
@@ -841,6 +928,18 @@ finally:
 int ulp_eof(struct ulp_con* c) //<<<
 {
 	return c->eof;
+}
+
+//>>>
+void ulp_con_set_cdata(struct ulp_con* c, void* cdata) //<<<
+{
+	c->cdata = cdata;
+}
+
+//>>>
+void* ulp_con_get_cdata(struct ulp_con* c) //<<<
+{
+	return c->cdata;
 }
 
 //>>>
